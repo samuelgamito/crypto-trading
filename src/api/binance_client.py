@@ -128,6 +128,10 @@ class BinanceClient:
         """Get current price for a symbol"""
         return self._make_request('GET', '/api/v3/ticker/price', {'symbol': symbol})
     
+    def get_24hr_stats(self, symbol: str) -> Dict:
+        """Get 24hr ticker statistics for a symbol"""
+        return self._make_request('GET', '/api/v3/ticker/24hr', {'symbol': symbol})
+    
     def get_klines(self, symbol: str, interval: str = '1h', limit: int = 100) -> List:
         """Get kline/candlestick data"""
         params = {

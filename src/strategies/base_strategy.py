@@ -95,6 +95,17 @@ class BaseStrategy(ABC):
         try:
             self.logger.info(f"Executing SELL order: {symbol} {quantity}")
             
+            # Round quantity to meet symbol requirements
+            if hasattr(self, 'fee_manager'):
+                # Get current balance for smart rounding
+                if symbol == 'BTCUSDT':
+                    current_quantity = self.positions.get('BTC', 0)
+                else:
+                    current_quantity = self.positions.get(symbol, 0)
+                
+                quantity = self.fee_manager.round_quantity(quantity, symbol, available_balance=current_quantity, is_sell_order=True)
+                self.logger.info(f"Rounded sell quantity: {quantity:.8f} (available: {current_quantity:.8f})")
+            
             # Get current price for validation
             current_price = float(self.binance_client.get_ticker_price(symbol)['price'])
             
@@ -112,7 +123,7 @@ class BaseStrategy(ABC):
                 current_quantity = self.positions.get(symbol, 0)
                 
             if current_quantity < quantity:
-                self.logger.warning(f"Insufficient {symbol}. Required: {quantity}, Available: {current_quantity}")
+                self.logger.warning(f"Insufficient {symbol}. Required: {quantity:.8f}, Available: {current_quantity:.8f}")
                 return None
             
             # Place the order
@@ -203,4 +214,12 @@ class BaseStrategy(ABC):
     
     def get_position_summary(self) -> Dict[str, float]:
         """Get summary of current positions"""
-        return self.positions.copy() 
+        return self.positions.copy()
+    
+    def has_position(self) -> bool:
+        """Check if we have any open positions"""
+        # Check if we have any crypto positions (excluding currency positions)
+        for symbol, quantity in self.positions.items():
+            if symbol != self.config.currency_symbol and quantity > 0:
+                return True
+        return False 

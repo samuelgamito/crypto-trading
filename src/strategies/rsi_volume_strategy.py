@@ -1,5 +1,5 @@
 """
-Simple Moving Average (SMA) trading strategy
+RSI + Volume Filters trading strategy
 """
 
 from typing import List
@@ -8,101 +8,112 @@ import logging
 from src.strategies.base_strategy import BaseStrategy
 from src.models.trade import MarketData
 from src.utils.fee_manager import FeeManager
+from src.utils.indicators import RSIIndicator, VolumeIndicator
 
 
-class SimpleMovingAverageStrategy(BaseStrategy):
-    """Simple Moving Average trading strategy"""
+class RSIVolumeStrategy(BaseStrategy):
+    """RSI + Volume Filters trading strategy"""
     
-    def __init__(self, config, binance_client, short_period: int = 12, long_period: int = 15):
+    def __init__(self, config, binance_client, rsi_period: int = 14, volume_period: int = 20):
         super().__init__(config, binance_client)
-        self.short_period = short_period
-        self.long_period = long_period
-        self.price_history: List[float] = []
+        self.rsi_period = rsi_period
+        self.volume_period = volume_period
+        
+        # Initialize indicators
+        self.rsi_indicator = RSIIndicator(period=rsi_period)
+        self.volume_indicator = VolumeIndicator(period=volume_period)
+        
         self.logger = logging.getLogger(self.__class__.__name__)
         
         # Initialize fee manager
         self.fee_manager = FeeManager(binance_client)
         
-        # Initialize price history with recent data for live trading
-        self._initialize_price_history()
+        # Initialize price and volume history with recent data for live trading
+        self._initialize_history()
     
-    def _initialize_price_history(self):
-        """Initialize price history with recent historical data"""
+    def _initialize_history(self):
+        """Initialize price and volume history with recent historical data"""
         try:
             # Get recent klines data (1-hour intervals)
             klines = self.binance_client.get_klines(
                 symbol=self.config.default_symbol,
                 interval='1h',
-                limit=self.long_period + 5  # Get extra data for safety
+                limit=max(self.rsi_period, self.volume_period) + 5  # Get extra data for safety
             )
             
-            # Extract closing prices
+            # Extract closing prices and volumes
             for kline in klines:
                 close_price = float(kline[4])  # Close price is at index 4
-                self.price_history.append(close_price)
+                volume = float(kline[5])       # Volume is at index 5
+                quote_volume = float(kline[7]) # Quote volume is at index 7
+                
+                self.rsi_indicator.add_price(close_price)
+                self.volume_indicator.add_volume(quote_volume)
             
-            self.logger.info(f"Initialized price history with {len(self.price_history)} data points")
+            self.logger.info(f"Initialized history with {len(klines)} data points")
             
         except Exception as e:
-            self.logger.warning(f"Could not initialize price history: {e}")
+            self.logger.warning(f"Could not initialize history: {e}")
             # If we can't get historical data, we'll build it up gradually
-            self.logger.info("Price history will be built up gradually from live data")
+            self.logger.info("History will be built up gradually from live data")
     
     def should_buy(self, market_data: MarketData) -> bool:
-        """Buy when short SMA crosses above long SMA (golden cross)"""
-        # Don't add price here - it's handled by the backtest engine
-        # self.price_history.append(market_data.price)
+        """Buy when RSI < 70 (not overbought) and volume > average volume"""
+        # Update indicators with new data
+        self.rsi_indicator.add_price(market_data.price)
+        self.volume_indicator.add_volume(market_data.quote_volume)
         
-        # Keep only the last long_period + 1 prices (need extra for crossover detection)
-        if len(self.price_history) > self.long_period + 1:
-            self.price_history = self.price_history[-(self.long_period + 1):]
+        # Get current RSI value
+        current_rsi = self.rsi_indicator.calculate_rsi()
         
-        # Need enough data for both SMAs
-        if len(self.price_history) < self.long_period:
-            return False
+        # Check RSI condition: not overbought (< 70)
+        rsi_condition = current_rsi < 70.0
         
-        short_sma = self._calculate_sma(self.short_period)
-        long_sma = self._calculate_sma(self.long_period)
+        # Check volume condition: current volume > average volume
+        volume_condition = self.volume_indicator.is_volume_above_average(market_data.quote_volume)
         
-        # Golden cross: short SMA crosses above long SMA
-        if len(self.price_history) >= self.long_period + 1:
-            prev_short_sma = self._calculate_sma(self.short_period, -1)
-            prev_long_sma = self._calculate_sma(self.long_period, -1)
-            
-            golden_cross = (prev_short_sma <= prev_long_sma and short_sma > long_sma)
-            
-            if golden_cross:
-                self.logger.info(f"Golden cross detected: Short SMA ({short_sma:.2f}) > Long SMA ({long_sma:.2f})")
-                return True
+        # Log conditions for debugging
+        avg_volume = self.volume_indicator.calculate_volume_sma()
+        volume_ratio = self.volume_indicator.get_volume_ratio(market_data.quote_volume)
+        
+        self.logger.info(f"Buy conditions - RSI: {current_rsi:.2f} (need < 70), "
+                        f"Volume: {market_data.quote_volume:.2f} vs avg {avg_volume:.2f} "
+                        f"(ratio: {volume_ratio:.2f})")
+        
+        if rsi_condition and volume_condition:
+            self.logger.info(f"Buy signal triggered: RSI {current_rsi:.2f} < 70 and "
+                           f"volume {volume_ratio:.2f}x above average")
+            return True
         
         return False
     
     def should_sell(self, market_data: MarketData) -> bool:
-        """Sell when short SMA crosses below long SMA (death cross) or take profit/stop loss"""
-        # Don't add price here - it's handled by the backtest engine
-        # self.price_history.append(market_data.price)
+        """Sell when RSI > 30 (not oversold) or take profit/stop loss"""
+        # Update indicators with new data
+        self.rsi_indicator.add_price(market_data.price)
+        self.volume_indicator.add_volume(market_data.quote_volume)
         
-        # Keep only the last long_period + 1 prices (need extra for crossover detection)
-        if len(self.price_history) > self.long_period + 1:
-            self.price_history = self.price_history[-(self.long_period + 1):]
+        # Get current RSI value
+        current_rsi = self.rsi_indicator.calculate_rsi()
         
-        # Need enough data for both SMAs
-        if len(self.price_history) < self.long_period:
-            return False
+        # Check RSI condition: not oversold (> 30)
+        rsi_condition = current_rsi > 30.0
         
-        short_sma = self._calculate_sma(self.short_period)
-        long_sma = self._calculate_sma(self.long_period)
+        # Check volume condition: current volume > average volume
+        volume_condition = self.volume_indicator.is_volume_above_average(market_data.quote_volume)
         
-        # Death cross: short SMA crosses below long SMA
-        if len(self.price_history) >= self.long_period + 1:
-            prev_short_sma = self._calculate_sma(self.short_period, -1)
-            prev_long_sma = self._calculate_sma(self.long_period, -1)
-            
-            death_cross = (prev_short_sma >= prev_long_sma and short_sma < long_sma)
-            
-            if death_cross:
-                self.logger.info(f"Death cross detected: Short SMA ({short_sma:.2f}) < Long SMA ({long_sma:.2f})")
-                return True
+        # Log conditions for debugging
+        avg_volume = self.volume_indicator.calculate_volume_sma()
+        volume_ratio = self.volume_indicator.get_volume_ratio(market_data.quote_volume)
+        
+        self.logger.info(f"Sell conditions - RSI: {current_rsi:.2f} (need > 30), "
+                        f"Volume: {market_data.quote_volume:.2f} vs avg {avg_volume:.2f} "
+                        f"(ratio: {volume_ratio:.2f})")
+        
+        if rsi_condition and volume_condition:
+            self.logger.info(f"Sell signal triggered: RSI {current_rsi:.2f} > 30 and "
+                           f"volume {volume_ratio:.2f}x above average")
+            return True
         
         # Check take profit and stop loss
         if self._check_take_profit_stop_loss(market_data):
@@ -175,9 +186,14 @@ class SimpleMovingAverageStrategy(BaseStrategy):
     def get_market_data(self, symbol: str) -> MarketData:
         """Get current market data for live trading"""
         try:
-            # Get current price from Binance
+            # Get current price and volume from Binance
             ticker_data = self.binance_client.get_ticker_price(symbol)
             price = float(ticker_data['price'])
+            
+            # Get 24hr stats for volume
+            stats_24hr = self.binance_client.get_24hr_stats(symbol)
+            volume = float(stats_24hr['volume'])
+            quote_volume = float(stats_24hr['quoteVolume'])
             
             # Get current timestamp
             from datetime import datetime
@@ -187,14 +203,10 @@ class SimpleMovingAverageStrategy(BaseStrategy):
             market_data = MarketData(
                 symbol=symbol,
                 price=price,
-                volume=1000.0,  # Default volume for live trading
+                volume=volume,
+                quote_volume=quote_volume,
                 timestamp=timestamp
             )
-            
-            # Update price history for strategy calculations
-            self.price_history.append(market_data.price)
-            if len(self.price_history) > self.long_period + 1:
-                self.price_history = self.price_history[-(self.long_period + 1):]
             
             return market_data
             
@@ -206,28 +218,12 @@ class SimpleMovingAverageStrategy(BaseStrategy):
                 symbol=symbol,
                 price=0.0,
                 volume=0.0,
+                quote_volume=0.0,
                 timestamp=datetime.now()
             )
     
-    def _calculate_sma(self, period: int, offset: int = 0) -> float:
-        """Calculate Simple Moving Average"""
-        if len(self.price_history) < period:
-            return 0.0
-        
-        start_idx = len(self.price_history) - period + offset
-        end_idx = len(self.price_history) + offset
-        
-        if start_idx < 0 or end_idx <= 0:
-            return 0.0
-        
-        prices = self.price_history[start_idx:end_idx]
-        return sum(prices) / len(prices)
-    
     def _check_take_profit_stop_loss(self, market_data: MarketData) -> bool:
         """Check if take profit or stop loss conditions are met"""
-        # This is a simplified version - in practice you'd track entry prices
-        # For now, we'll use a simple percentage-based approach
-        
         if not self.trades:
             return False
         

@@ -67,7 +67,7 @@ def test_sell_order():
         raw_quantity = btc_balance * (sell_percentage / 100.0)
         
         # Round quantity using fee manager
-        quantity = fee_manager.round_quantity(raw_quantity, config.default_symbol)
+        quantity = fee_manager.round_quantity(raw_quantity, config.default_symbol, is_sell_order=False)
         
         # Validate the order parameters
         validation = fee_manager.validate_order_parameters(config.default_symbol, quantity)

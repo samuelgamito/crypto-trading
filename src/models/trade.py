@@ -111,6 +111,7 @@ class MarketData:
     low_24h: float = 0.0
     change_24h: float = 0.0
     change_percent_24h: float = 0.0
+    quote_volume: float = 0.0  # Volume in quote currency (e.g., USDT)
     
     def __post_init__(self):
         if isinstance(self.timestamp, str):

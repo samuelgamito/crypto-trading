@@ -161,7 +161,7 @@ class BacktestEngine:
             )
             
             self.trades.append(trade)
-            self.logger.debug(f"BUY: {quantity} {symbol} @ ${market_data.price:.2f}")
+            self.logger.debug(f"BUY: {quantity:.8f} {symbol} @ ${market_data.price:.2f}")
             
         except Exception as e:
             self.logger.error(f"Error executing buy signal: {e}")

@@ -208,8 +208,8 @@ class FeeManager:
             self.logger.error(f"Error getting symbol filters for {symbol}: {e}")
             return {}
     
-    def round_quantity(self, quantity: float, symbol: str) -> float:
-        """Round quantity to meet symbol's step size requirements"""
+    def round_quantity(self, quantity: float, symbol: str, available_balance: float = None, is_sell_order: bool = False) -> float:
+        """Round quantity to meet symbol's step size requirements with smart rounding"""
         try:
             filters = self.get_symbol_filters(symbol)
             
@@ -217,20 +217,42 @@ class FeeManager:
                 step_size = float(filters['LOT_SIZE']['stepSize'])
                 min_qty = float(filters['LOT_SIZE']['minQty'])
                 
-                # Use floor division to ensure we don't exceed the available quantity
-                # This is especially important for sell orders
-                steps = int(quantity / step_size)
-                rounded_quantity = steps * step_size
+                # Calculate steps
+                steps = quantity / step_size
+                
+                # Smart rounding logic
+                if is_sell_order and available_balance is not None:
+                    # For sell orders: round down to ensure we don't exceed available balance
+                    steps = int(steps)  # Floor division
+                    rounded_quantity = steps * step_size
+                    
+                    # If we have more than the rounded quantity, try to round up
+                    if available_balance >= (steps + 1) * step_size:
+                        # Check if rounding up would still be within our balance
+                        potential_quantity = (steps + 1) * step_size
+                        if potential_quantity <= available_balance:
+                            rounded_quantity = potential_quantity
+                            self.logger.debug(f"Rounded UP for sell: {quantity:.8f} -> {rounded_quantity:.8f} (available: {available_balance:.8f})")
+                        else:
+                            self.logger.debug(f"Rounded DOWN for sell: {quantity:.8f} -> {rounded_quantity:.8f} (insufficient balance)")
+                    else:
+                        self.logger.debug(f"Rounded DOWN for sell: {quantity:.8f} -> {rounded_quantity:.8f} (insufficient balance)")
+                else:
+                    # For buy orders or when balance is not provided: round to nearest
+                    steps = round(steps)
+                    rounded_quantity = steps * step_size
+                    self.logger.debug(f"Rounded to nearest: {quantity:.8f} -> {rounded_quantity:.8f}")
                 
                 # Ensure minimum quantity
                 if rounded_quantity < min_qty:
                     rounded_quantity = min_qty
+                    self.logger.debug(f"Adjusted to minimum: {rounded_quantity:.8f}")
                 
                 # Additional check for floating point precision issues
-                if abs(rounded_quantity) < 1e-10:
+                if abs(rounded_quantity) < 0.0000000001:
                     rounded_quantity = 0.0
                 
-                self.logger.debug(f"Rounded quantity: {quantity} -> {rounded_quantity} (step: {step_size}, steps: {steps})")
+                self.logger.debug(f"Final rounded quantity: {quantity:.8f} -> {rounded_quantity:.8f} (step: {step_size:.8f})")
                 return rounded_quantity
             
             return quantity
@@ -256,18 +278,20 @@ class FeeManager:
                 
                 if quantity < min_qty:
                     validation['valid'] = False
-                    validation['errors'].append(f"Quantity {quantity} below minimum {min_qty}")
+                    validation['errors'].append(f"Quantity {quantity:.8f} below minimum {min_qty:.8f}")
                 
                 if quantity > max_qty:
                     validation['valid'] = False
-                    validation['errors'].append(f"Quantity {quantity} above maximum {max_qty}")
+                    validation['errors'].append(f"Quantity {quantity:.8f} above maximum {max_qty:.8f}")
                 
-                # Check if quantity aligns with step size using the same logic as rounding
-                steps = int(quantity / step_size)  # Use same logic as rounding (floor division)
-                expected_quantity = steps * step_size
-                if abs(quantity - expected_quantity) > 1e-8:  # Small tolerance for floating point
+                # Check if quantity aligns with step size using smart rounding logic
+                steps = quantity / step_size
+                # Round to nearest for validation (same as buy orders)
+                rounded_steps = round(steps)
+                expected_quantity = rounded_steps * step_size
+                if abs(quantity - expected_quantity) > 0.00000001:  # Small tolerance for floating point
                     validation['valid'] = False
-                    validation['errors'].append(f"Quantity {quantity} not aligned with step size {step_size} (should be {expected_quantity})")
+                    validation['errors'].append(f"Quantity {quantity:.8f} not aligned with step size {step_size:.8f} (should be {expected_quantity:.8f})")
             
             # Check NOTIONAL filter
             if 'NOTIONAL' in filters and price:
@@ -276,7 +300,7 @@ class FeeManager:
                 
                 if order_value < min_notional:
                     validation['valid'] = False
-                    validation['errors'].append(f"Order value {order_value} below minimum notional {min_notional}")
+                    validation['errors'].append(f"Order value {order_value:.2f} below minimum notional {min_notional:.2f}")
             
             return validation
             

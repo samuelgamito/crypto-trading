@@ -6,19 +6,34 @@ A sophisticated Python-based cryptocurrency trading bot with intelligent percent
 
 - **🤖 Automated Trading**: Real-time trading via Binance API with testnet support
 - **💰 Smart Position Sizing**: Percentage-based trading (5% of total wallet per trade)
-- **📊 Portfolio Tracking**: Real-time USDT and BTC balance monitoring
+- **📊 Portfolio Tracking**: Real-time BRL and BTC balance monitoring
 - **🛡️ Risk Management**: Built-in stop-loss, take-profit, and daily limits
-- **📈 SMA Crossover Strategy**: Golden cross/death cross signals
+- **📈 Dual Strategy System**: SMA Crossover + RSI + Volume Filters
 - **🔍 Performance Analytics**: Comprehensive metrics and detailed trade logging
 - **📚 Complete Documentation**: Extensive guides and quick references
 
-## 🎯 Trading Strategy
+## 🎯 Trading Strategies
 
-### Simple Moving Average (SMA) Crossover
-- **Short SMA (12-period)**: Faster moving average
-- **Long SMA (15-period)**: Slower moving average
-- **Golden Cross (Buy)**: Short SMA crosses above Long SMA
-- **Death Cross (Sell)**: Short SMA crosses below Long SMA
+### Dual Strategy System
+
+O sistema implementa **duas estratégias complementares** que trabalham em conjunto:
+
+#### 1. Simple Moving Average (SMA) Crossover
+- **Short SMA (12-period)**: Média móvel mais rápida
+- **Long SMA (15-period)**: Média móvel mais lenta
+- **Golden Cross (Buy)**: Short SMA cruza acima da Long SMA
+- **Death Cross (Sell)**: Short SMA cruza abaixo da Long SMA
+
+#### 2. RSI + Volume Filters
+- **RSI (14-period)**: Relative Strength Index para momentum
+- **Volume Confirmation**: Volume deve estar acima da média móvel
+- **Buy Signal**: RSI < 70 (não sobrecomprado) AND Volume > Average
+- **Sell Signal**: RSI > 30 (não sobrevendido) AND Volume > Average
+
+#### Smart Signal Combination
+- **STRONG SIGNALS**: Ambas as estratégias concordam
+- **MODERATE SIGNALS**: SMA sinaliza, RSI neutro
+- **CONSERVATIVE SIGNALS**: RSI extremo com confirmação de volume
 
 ### Smart Position Sizing
 - **Percentage-based**: 5% of total wallet balance per trade
@@ -51,13 +66,16 @@ cp env.example .env
 nano .env
 ```
 
-### 3. Run Backtest (Optional)
+### 3. Run Trading Bot
 ```bash
-# Test strategy performance
+# Start the enhanced trading bot with dual strategies
+.venv/bin/python main.py
+
+# Run backtest (SMA strategy only)
 .venv/bin/python backtest.py
 
-# Custom parameters
-.venv/bin/python backtest.py --symbol BTCUSDT --days 90 --short-period 12 --long-period 15
+# Custom backtest parameters
+.venv/bin/python backtest.py --symbol BTCBRL --days 90 --short-period 12 --long-period 15
 ```
 
 ### 4. Start Live Trading
@@ -88,8 +106,9 @@ crypto-trading/
 
 ## 🔧 Key Components
 
-### Trading Strategy
-- **Simple Moving Average (SMA) Crossover**: Golden cross/death cross signals
+### Trading Strategies
+- **Dual Strategy System**: SMA Crossover + RSI + Volume Filters
+- **Smart Signal Combination**: Three levels of signal confidence
 - **Extensible Architecture**: Easy to add new strategies
 - **Risk Management**: Position sizing and stop-loss
 
