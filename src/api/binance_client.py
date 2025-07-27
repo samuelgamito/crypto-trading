@@ -9,6 +9,7 @@ import requests
 import logging
 from urllib.parse import urlencode
 from typing import Dict, List, Optional, Any
+from src.utils.binance_logger import BinanceLogger
 
 
 class BinanceClient:
@@ -20,6 +21,9 @@ class BinanceClient:
         self.api_key = config.api_key
         self.secret_key = config.secret_key
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize Binance logger
+        self.binance_logger = BinanceLogger()
         
         # Session for HTTP requests
         self.session = requests.Session()
@@ -40,7 +44,7 @@ class BinanceClient:
     
     def _make_request(self, method: str, endpoint: str, params: Dict = None, 
                      signed: bool = False) -> Dict:
-        """Make HTTP request to Binance API"""
+        """Make HTTP request to Binance API with detailed logging"""
         url = f"{self.base_url}{endpoint}"
         
         if params is None:
@@ -49,6 +53,14 @@ class BinanceClient:
         if signed:
             params['timestamp'] = int(time.time() * 1000)
             params['signature'] = self._generate_signature(params)
+        
+        # Log the API call
+        request_id = self.binance_logger.log_api_call(
+            method=method,
+            endpoint=endpoint,
+            params=params,
+            headers=dict(self.session.headers)
+        )
         
         try:
             if method.upper() == 'GET':
@@ -60,10 +72,43 @@ class BinanceClient:
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
-            response.raise_for_status()
-            return response.json()
+            # Log the response
+            if response.status_code == 200:
+                response_data = response.json()
+                self.binance_logger.log_api_response(
+                    request_id=request_id,
+                    response_data=response_data,
+                    status_code=response.status_code,
+                    success=True
+                )
+                return response_data
+            else:
+                # Log error response
+                try:
+                    error_data = response.json()
+                except:
+                    error_data = {'msg': response.text}
+                
+                self.binance_logger.log_api_response(
+                    request_id=request_id,
+                    response_data=error_data,
+                    status_code=response.status_code,
+                    success=False
+                )
+                
+                response.raise_for_status()
+                return error_data
             
         except requests.exceptions.RequestException as e:
+            # Log the exception
+            self.binance_logger.log_api_error(
+                request_id=request_id,
+                error=e,
+                method=method,
+                endpoint=endpoint,
+                params=params
+            )
+            
             self.logger.error(f"API request failed: {e}")
             raise
     
@@ -94,12 +139,15 @@ class BinanceClient:
     
     def place_order(self, symbol: str, side: str, quantity: float, 
                    order_type: str = 'MARKET') -> Dict:
+
+        decimal_string = f"{quantity:.8f}"
+
         """Place a new order"""
         params = {
             'symbol': symbol,
             'side': side,
             'type': order_type,
-            'quantity': quantity
+            'quantity': decimal_string
         }
         return self._make_request('POST', '/api/v3/order', params, signed=True)
     
@@ -136,4 +184,16 @@ class BinanceClient:
         for symbol_info in exchange_info['symbols']:
             if symbol_info['symbol'] == symbol:
                 return symbol_info
-        return None 
+        return None
+    
+    def get_api_statistics(self) -> Dict[str, int]:
+        """Get API call statistics"""
+        return self.binance_logger.get_statistics()
+    
+    def log_api_statistics(self):
+        """Log current API statistics"""
+        self.binance_logger.log_statistics()
+    
+    def cleanup_old_logs(self, days: int = 30):
+        """Clean up old log files"""
+        self.binance_logger.cleanup_old_logs(days) 

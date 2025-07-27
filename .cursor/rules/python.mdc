@@ -16,3 +16,6 @@ keep it simple
 
 
 dont create unit test if not asked for
+
+aways use python3
+aways use the .venv, never try to install any dependency outside the virtual env

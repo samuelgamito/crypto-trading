@@ -4,7 +4,7 @@ Main trading bot that orchestrates trading strategies
 
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List
 
 from src.strategies.base_strategy import BaseStrategy
@@ -38,7 +38,7 @@ class TradingBot:
     def run(self):
         """Main trading loop"""
         self.logger.info("Starting trading bot...")
-        print("🚀 Trading bot started! Monitoring BTCUSDT...")
+        print("🚀 Trading bot started! Monitoring BTCBRL...")
         self.is_running = True
         
         try:
@@ -64,7 +64,7 @@ class TradingBot:
                 # Get and log wallet balances
                 self._log_wallet_balances(market_data.price)
                 
-                print(f"📊 {market_data.symbol}: ${market_data.price:,.2f} | Trades: {self.daily_trades}/{self.config.max_daily_trades}")
+                print(f"📊 {market_data.symbol}: {market_data.price:,.2f} | Trades: {self.daily_trades}/{self.config.max_daily_trades}")
                 
                 # Check for trading signals
                 self._process_trading_signals(market_data)
@@ -133,24 +133,29 @@ class TradingBot:
                 return
             
             # Calculate trade details
-            trade_value_usd = quantity * market_data.price
+            trade_value_brl = quantity * market_data.price
             
             # Get wallet balances for context
-            usdt_balance = self.binance_client.get_balance('USDT')
-            btc_balance = self.binance_client.get_balance('BTC')
-            total_wallet_usd = usdt_balance + (btc_balance * market_data.price)
+            currency_symbol = self.binance_client.get_balance(self.config.currency_symbol)
+            btc_balance = self.binance_client.get_balance(self.config.crypto_symbol)
+            
+            # Get fee information
+            fee_summary = self.strategy.fee_manager.get_fee_summary(market_data.symbol)
+            estimated_fee = trade_value_brl * fee_summary['taker_fee_rate']
+            net_value = trade_value_brl - estimated_fee
             
             # Show detailed buy information
             print(f"\n🟢 BUYING {quantity:.6f} BTC")
-            print(f"   💰 Trade Value: ${trade_value_usd:,.2f}")
-            print(f"   📊 Price: ${market_data.price:,.2f}")
+            print(f"   💰 Trade Value: {trade_value_brl:,.2f}")
+            print(f"   💸 Estimated Fee: {estimated_fee:,.2f} ({fee_summary['taker_fee_percent']:.3f}%)")
+            print(f"   💵 Net Value: {net_value:,.2f}")
+            print(f"   📊 Price: {market_data.price:,.2f}")
             print(f"   📈 Percentage: {self.config.trade_percentage}% of total wallet")
-            print(f"   💼 Total Wallet: ${total_wallet_usd:,.2f}")
-            print(f"   💵 USDT Balance: ${usdt_balance:,.2f}")
+            print(f"   💵 BRL Balance: {currency_symbol:,.2f}")
             print(f"   🪙 BTC Balance: {btc_balance:.6f} BTC")
-            
+
             # Execute the buy order
-            trade = self.strategy.execute_buy('BTCUSDT', quantity)
+            trade = self.strategy.execute_buy(self.config.default_symbol, quantity)
             
             if trade:
                 self.daily_trades += 1
@@ -179,15 +184,22 @@ class TradingBot:
                 return
             
             # Show detailed sell information
-            trade_value_usd = current_position * market_data.price
+            trade_value_brl = current_position * market_data.price
+            
+            # Get fee information
+            fee_summary = self.strategy.fee_manager.get_fee_summary(market_data.symbol)
+            estimated_fee = trade_value_brl * fee_summary['taker_fee_rate']
+            net_proceeds = trade_value_brl - estimated_fee
             
             print(f"\n🔴 SELLING {current_position:.6f} BTC")
-            print(f"   💰 Trade Value: ${trade_value_usd:,.2f}")
-            print(f"   📊 Price: ${market_data.price:,.2f}")
+            print(f"   💰 Trade Value: {trade_value_brl:,.2f}")
+            print(f"   💸 Estimated Fee: {estimated_fee:,.2f} ({fee_summary['taker_fee_percent']:.3f}%)")
+            print(f"   💵 Net Proceeds: {net_proceeds:,.2f}")
+            print(f"   📊 Price: {market_data.price:,.2f}")
             print(f"   🪙 BTC Balance: {current_position:.6f} BTC")
             
             # Execute the sell order
-            trade = self.strategy.execute_sell('BTCUSDT', current_position)
+            trade = self.strategy.execute_sell(self.config.default_symbol, current_position)
             
             if trade:
                 self.daily_trades += 1
@@ -201,12 +213,12 @@ class TradingBot:
                 if pnl > 0:
                     self.win_trades += 1
                 
-                self.logger.info(f"SELL order executed: {trade.quantity} BTC at ${trade.price:.2f}")
-                self.logger.info(f"Trade P&L: ${pnl:.2f}")
+                self.logger.info(f"SELL order executed: {trade.quantity} BTC at {trade.price:.2f}")
+                self.logger.info(f"Trade P&L: {pnl:.2f}")
                 self.logger.info(f"Daily trades: {self.daily_trades}/{self.config.max_daily_trades}")
                 
                 print(f"   ✅ SELL ORDER EXECUTED!")
-                print(f"   💰 P&L: ${pnl:,.2f}")
+                print(f"   💰 P&L: {pnl:,.2f}")
                 print(f"   📝 Daily trades: {self.daily_trades}/{self.config.max_daily_trades}")
             else:
                 print(f"   ❌ SELL ORDER FAILED!")
@@ -237,21 +249,21 @@ class TradingBot:
     def _log_wallet_balances(self, current_price: float):
         """Log current wallet balances"""
         try:
-            # Get USDT balance
-            usdt_balance = self.binance_client.get_balance('USDT')
+            # Get BRL balance
+            currency_symbol = self.binance_client.get_balance(self.config.currency_symbol)
             
             # Get BTC balance
-            btc_balance = self.binance_client.get_balance('BTC')
-            
-            # Calculate total portfolio value in USD
-            btc_value_usd = btc_balance * current_price
-            total_portfolio_usd = usdt_balance + btc_value_usd
+            crypto_balance = self.binance_client.get_balance(self.config.crypto_symbol)
+
+            # Calculate total portfolio value in BRL
+            crypto_value_currency = crypto_balance * current_price
+            total_portfolio_currency = currency_symbol + crypto_value_currency
             
             # Log to file
-            self.logger.info(f"Wallet - USDT: ${usdt_balance:.2f}, BTC: {btc_balance:.6f} (${btc_value_usd:.2f}), Total: ${total_portfolio_usd:.2f}")
+            self.logger.info(f"Wallet - {self.config.currency_symbol}: {currency_symbol:.2f}, {self.config.crypto_symbol}: {crypto_balance:.6f}  {crypto_value_currency:.2f}), Total: {total_portfolio_currency:.2f}")
             
             # Print to console
-            print(f"💰 Wallet: USDT ${usdt_balance:,.2f} | BTC {btc_balance:.6f} (${btc_value_usd:,.2f}) | Total: ${total_portfolio_usd:,.2f}")
+            print(f"💰 Wallet: {self.config.currency_symbol} {currency_symbol:,.2f} | {self.config.crypto_symbol} {crypto_balance:.6f}  {crypto_value_currency:,.2f}) | Total: {total_portfolio_currency:,.2f}")
             
         except Exception as e:
             self.logger.error(f"Error getting wallet balances: {e}")
@@ -264,8 +276,13 @@ class TradingBot:
         self.logger.info("=" * 50)
         self.logger.info(f"Total trades: {self.total_trades}")
         self.logger.info(f"Win rate: {(self.win_trades/self.total_trades*100):.1f}%" if self.total_trades > 0 else "Win rate: N/A")
-        self.logger.info(f"Total P&L: ${self.total_pnl:.2f}")
+        self.logger.info(f"Total P&L: {self.total_pnl:.2f}")
         self.logger.info(f"Current positions: {self.strategy.get_position_summary()}")
+        
+        # Log API statistics
+        api_stats = self.binance_client.get_api_statistics()
+        self.logger.info(f"API Calls: {api_stats['total_calls']} total, {api_stats['error_calls']} errors, {api_stats['success_rate']:.1f}% success rate")
+        
         self.logger.info("=" * 50)
     
     def get_status(self) -> Dict:

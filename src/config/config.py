@@ -17,10 +17,13 @@ class Config:
         # Binance API Configuration
         self.api_key = os.getenv('BINANCE_API_KEY')
         self.secret_key = os.getenv('BINANCE_SECRET_KEY')
+        print(os.getenv('BINANCE_TESTNET', 'true').lower())
         self.testnet = os.getenv('BINANCE_TESTNET', 'true').lower() == 'true'
         
         # Trading Configuration
-        self.default_symbol = os.getenv('DEFAULT_SYMBOL', 'BTCUSDT')
+        self.currency_symbol = os.getenv('CURRENCY_SYMBOL', 'BRL')
+        self.crypto_symbol = os.getenv('CRYPTO_SYMBOL', 'BTC')
+        self.default_symbol = f"{self.crypto_symbol}{self.currency_symbol}"
         self.trade_amount = float(os.getenv('TRADE_AMOUNT', '0.001'))
         self.max_position_size = float(os.getenv('MAX_POSITION_SIZE', '0.01'))
         self.trade_percentage = float(os.getenv('TRADE_PERCENTAGE', '5.0'))  # Percentage of total wallet
@@ -29,6 +32,10 @@ class Config:
         self.stop_loss_percentage = float(os.getenv('STOP_LOSS_PERCENTAGE', '2.0'))
         self.take_profit_percentage = float(os.getenv('TAKE_PROFIT_PERCENTAGE', '5.0'))
         self.max_daily_trades = int(os.getenv('MAX_DAILY_TRADES', '10'))
+        
+        # Fee Management
+        self.include_fees = os.getenv('INCLUDE_FEES', 'true').lower() == 'true'
+        self.fee_buffer_percentage = float(os.getenv('FEE_BUFFER_PERCENTAGE', '0.2'))  # Extra buffer for fees
         
         # Logging
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')

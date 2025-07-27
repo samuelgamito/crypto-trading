@@ -231,6 +231,55 @@ print(f'Default Symbol: {config.default_symbol}')
 - **[Quick Reference](QUICK_REFERENCE.md)**: Essential commands and examples
 - **[Trading Decisions](TRADING_DECISIONS.md)**: Detailed decision-making logic
 - **[API Reference](DOCUMENTATION.md#api-reference)**: Technical API documentation
+- **[Binance Logging System](BINANCE_LOGGING_SYSTEM.md)**: Sistema de logging detalhado da API
+- **[Quantity Validation Fix](QUANTITY_VALIDATION_FIX.md)**: Correção de validação de quantidades
+
+## 🔍 Debugging e Logs
+
+### Sistema de Logging da Binance
+
+O bot inclui um sistema completo de logging para facilitar o debug:
+
+```bash
+# Visualizar estatísticas da API
+python3 view_binance_logs.py --stats
+
+# Ver erros recentes
+python3 view_binance_logs.py --errors 10
+
+# Ver chamadas recentes da API
+python3 view_binance_logs.py --calls 20
+
+# Ver detalhes de erro específico
+python3 view_binance_logs.py --error <ID>
+
+# Limpar logs antigos
+python3 view_binance_logs.py --cleanup 7
+```
+
+### Arquivos de Log
+
+```
+logs/
+├── trading_bot.log           # Logs gerais do bot
+└── binance/
+    ├── binance_api.log       # Todas as chamadas da API
+    ├── binance_errors.log    # Apenas erros
+    └── error_<ID>.log       # Arquivos detalhados por erro
+```
+
+### Testes do Sistema
+
+```bash
+# Testar sistema de logging
+python3 test_binance_logging.py
+
+# Testar validação de quantidades
+python3 test_quantity_validation.py
+
+# Testar sistema de taxas
+python3 test_fees.py
+```
 
 ## 🛠️ Troubleshooting
 

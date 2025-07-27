@@ -41,9 +41,18 @@ class BaseStrategy(ABC):
         try:
             self.logger.info(f"Executing BUY order: {symbol} {quantity}")
             
-            # Check if we have enough balance
-            balance = self.binance_client.get_balance('USDT')
+            # Get current price for validation
             current_price = float(self.binance_client.get_ticker_price(symbol)['price'])
+            
+            # Validate order parameters
+            if hasattr(self, 'fee_manager'):
+                validation = self.fee_manager.validate_order_parameters(symbol, quantity, current_price)
+                if not validation['valid']:
+                    self.logger.error(f"Order validation failed: {validation['errors']}")
+                    return None
+            
+            # Check if we have enough balance
+            balance = self.binance_client.get_balance(self.config.currency_symbol)
             required_balance = quantity * current_price
             
             if balance < required_balance:
@@ -85,6 +94,16 @@ class BaseStrategy(ABC):
         """Execute a sell order"""
         try:
             self.logger.info(f"Executing SELL order: {symbol} {quantity}")
+            
+            # Get current price for validation
+            current_price = float(self.binance_client.get_ticker_price(symbol)['price'])
+            
+            # Validate order parameters
+            if hasattr(self, 'fee_manager'):
+                validation = self.fee_manager.validate_order_parameters(symbol, quantity, current_price)
+                if not validation['valid']:
+                    self.logger.error(f"Order validation failed: {validation['errors']}")
+                    return None
             
             # Check if we have enough of the asset
             if symbol == 'BTCUSDT':
@@ -171,14 +190,13 @@ class BaseStrategy(ABC):
         """Sync internal positions with actual wallet balances"""
         try:
             # Get actual wallet balances
-            btc_balance = self.binance_client.get_balance('BTC')
-            usdt_balance = self.binance_client.get_balance('USDT')
-            
+            crypto_balance = self.binance_client.get_balance(self.config.crypto_symbol)
+            currence_balance = self.binance_client.get_balance(self.config.currency_symbol)
+                
             # Update internal positions with real balances
-            self.positions['BTC'] = btc_balance
-            self.positions['USDT'] = usdt_balance
-            
-            self.logger.info(f"Synced positions with wallet: BTC={btc_balance:.6f}, USDT=${usdt_balance:.2f}")
+            self.positions[self.config.crypto_symbol] = crypto_balance
+            self.positions[self.config.currency_symbol] = currence_balance
+            self.logger.info(f"Synced positions with wallet: {self.config.crypto_symbol}={crypto_balance:.6f}, {self.config.currency_symbol}={currence_balance:.2f}")
             
         except Exception as e:
             self.logger.error(f"Error syncing positions with wallet: {e}")

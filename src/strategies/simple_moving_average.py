@@ -7,6 +7,7 @@ import logging
 
 from src.strategies.base_strategy import BaseStrategy
 from src.models.trade import MarketData
+from src.utils.fee_manager import FeeManager
 
 
 class SimpleMovingAverageStrategy(BaseStrategy):
@@ -18,6 +19,9 @@ class SimpleMovingAverageStrategy(BaseStrategy):
         self.long_period = long_period
         self.price_history: List[float] = []
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize fee manager
+        self.fee_manager = FeeManager(binance_client)
         
         # Initialize price history with recent data for live trading
         self._initialize_price_history()
@@ -111,32 +115,56 @@ class SimpleMovingAverageStrategy(BaseStrategy):
         try:
             current_price = market_data.price
             
-            # Get total wallet balance
-            usdt_balance = self.binance_client.get_balance('USDT')
+            # Get total wallet balance in BRL
+            brl_balance = self.binance_client.get_balance('BRL')
             btc_balance = self.binance_client.get_balance('BTC')
-            total_wallet_usd = usdt_balance + (btc_balance * current_price)
+            total_wallet_brl = brl_balance + (btc_balance * current_price)
             
             # Calculate trade amount as percentage of total wallet
-            trade_amount_usd = total_wallet_usd * (self.config.trade_percentage / 100.0)
+            trade_amount_brl = total_wallet_brl * (self.config.trade_percentage / 100.0)
+            
+            # If fees are enabled, adjust for fees
+            if self.config.include_fees:
+                # Get fee information
+                fee_summary = self.fee_manager.get_fee_summary(market_data.symbol)
+                taker_fee_rate = fee_summary['taker_fee_rate']
+                
+                # Calculate required gross amount to achieve desired net amount
+                # desired_net = gross_amount * (1 - fee_rate)
+                # gross_amount = desired_net / (1 - fee_rate)
+                gross_amount_brl = trade_amount_brl / (1 - taker_fee_rate)
+                
+                # Add fee buffer for safety
+                fee_buffer = gross_amount_brl * (self.config.fee_buffer_percentage / 100.0)
+                total_required_brl = gross_amount_brl + fee_buffer
+                
+                # Check if we have enough balance for the gross amount
+                if total_required_brl > brl_balance:
+                    self.logger.warning(f"Insufficient BRL balance for fees. Required: R$ {total_required_brl:.2f}, Available: R$ {brl_balance:.2f}")
+                    # Try with available balance
+                    available_for_trade = brl_balance * (1 - taker_fee_rate - self.config.fee_buffer_percentage / 100.0)
+                    if available_for_trade < 50:
+                        self.logger.warning(f"Available trade amount R$ {available_for_trade:.2f} below minimum R$ 50")
+                        return 0.0
+                    trade_amount_brl = available_for_trade
+                else:
+                    trade_amount_brl = gross_amount_brl * (1 - taker_fee_rate)
+                
+                self.logger.info(f"Fee-adjusted calculation: Gross R$ {gross_amount_brl:.2f}, Net R$ {trade_amount_brl:.2f}, Fee: {taker_fee_rate*100:.3f}%")
             
             # Calculate BTC quantity
-            quantity = trade_amount_usd / current_price
+            quantity = trade_amount_brl / current_price
             
-            # Round to appropriate decimal places
-            quantity = round(quantity, 6)  # Default for most crypto pairs
+            # Round quantity to meet symbol requirements
+            quantity = self.fee_manager.round_quantity(quantity, market_data.symbol)
             
-            # Ensure minimum trade size ($10)
-            if trade_amount_usd < 10:
-                self.logger.warning(f"Trade amount ${trade_amount_usd:.2f} below minimum $10")
-                return 0.0
-            
-            # Ensure we have enough USDT
-            if trade_amount_usd > usdt_balance:
-                self.logger.warning(f"Insufficient USDT balance: ${usdt_balance:.2f} < ${trade_amount_usd:.2f}")
+            # Ensure minimum trade size (R$ 50)
+            if trade_amount_brl < 50:
+                self.logger.warning(f"Trade amount R$ {trade_amount_brl:.2f} below minimum R$ 50")
                 return 0.0
             
             # Log the calculation
-            self.logger.info(f"Position calculation: {self.config.trade_percentage}% of ${total_wallet_usd:.2f} = ${trade_amount_usd:.2f} = {quantity:.6f} BTC")
+            self.logger.info(f"Position calculation: {self.config.trade_percentage}% of R$ {total_wallet_brl:.2f} = R$ {trade_amount_brl:.2f} = {quantity:.6f} BTC")
             
             return quantity
             
