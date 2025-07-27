@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crypto-trading-bot
+  labels:
+    app: crypto-trading-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+    spec:
+      containers:
+      - name: crypto-trading-bot
+        image: ghcr.io/your-username/crypto-trading:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: BINANCE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: crypto-trading-secrets
+              key: binance-api-key
+        - name: BINANCE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: crypto-trading-secrets
+              key: binance-secret-key
+        - name: BINANCE_TESTNET
+          value: "false"
+        - name: DEFAULT_SYMBOL
+          value: "BTCUSDT"
+        - name: TRADE_PERCENTAGE
+          value: "5.0"
+        - name: MAX_DAILY_TRADES
+          value: "10"
+        - name: STOP_LOSS_PERCENTAGE
+          value: "2.0"
+        - name: TAKE_PROFIT_PERCENTAGE
+          value: "5.0"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: LOG_FILE
+          value: "logs/trading_bot.log"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: logs-volume
+          mountPath: /app/logs
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: crypto-trading-logs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crypto-trading-bot-service
+spec:
+  selector:
+    app: crypto-trading-bot
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: crypto-trading-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: crypto-trading-secrets
+type: Opaque
+data:
+  # Base64 encoded values - replace with your actual values
+  binance-api-key: <base64-encoded-api-key>
+  binance-secret-key: <base64-encoded-secret-key> 

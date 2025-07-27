@@ -1,0 +1,18 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+
+Avoid using external libs
+if it's a must, ask first and map their owner
+add on requirement.txt and then install 
+
+
+aways read https://developers.binance.com/docs/binance-spot-api-docs/rest-api
+
+keep it simple
+
+
+dont create unit test if not asked for

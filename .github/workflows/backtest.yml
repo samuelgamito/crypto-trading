@@ -1,0 +1,85 @@
+name: Automated Backtesting
+
+on:
+  schedule:
+    # Run backtests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Trading symbol to test'
+        required: false
+        default: 'BTCUSDT'
+      days:
+        description: 'Number of days to backtest'
+        required: false
+        default: '30'
+      short_period:
+        description: 'Short SMA period'
+        required: false
+        default: '12'
+      long_period:
+        description: 'Long SMA period'
+        required: false
+        default: '15'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run backtest
+      run: |
+        python backtest.py \
+          --symbol ${{ github.event.inputs.symbol || 'BTCUSDT' }} \
+          --days ${{ github.event.inputs.days || '30' }} \
+          --short-period ${{ github.event.inputs.short_period || '12' }} \
+          --long-period ${{ github.event.inputs.long_period || '15' }}
+
+    - name: Upload backtest results
+      uses: actions/upload-artifact@v3
+      with:
+        name: backtest-results-${{ github.run_number }}
+        path: |
+          logs/
+          *.log
+        retention-days: 7
+
+    - name: Comment on PR (if triggered by PR)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let results = 'Backtest completed successfully!';
+          
+          try {
+            if (fs.existsSync('logs/trading_bot.log')) {
+              const logContent = fs.readFileSync('logs/trading_bot.log', 'utf8');
+              const lines = logContent.split('\n');
+              const lastLines = lines.slice(-20).join('\n');
+              results = `## Backtest Results\n\n\`\`\`\n${lastLines}\n\`\`\``;
+            }
+          } catch (error) {
+            results = 'Backtest completed but could not read log file.';
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: results
+          }); 
