@@ -69,7 +69,7 @@ class BinanceLogger:
         
         return sanitized
     
-    def _create_request_id(self, method: str, endpoint: str) -> str:
+    def create_request_id(self, method: str, endpoint: str) -> str:
         """Create a unique request ID for tracking"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         request_hash = hashlib.md5(f"{method}_{endpoint}_{timestamp}".encode()).hexdigest()[:8]
@@ -80,7 +80,7 @@ class BinanceLogger:
         """Log an API call request"""
         
         if request_id is None:
-            request_id = self._create_request_id(method, endpoint)
+            request_id = self.create_request_id(method, endpoint)
         
         self.call_count += 1
         

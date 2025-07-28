@@ -41,6 +41,13 @@ class Config:
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
         self.log_file = os.getenv('LOG_FILE', 'logs/trading_bot.log')
         
+        # MongoDB Configuration
+        self.mongo_connection_string = os.getenv('MONGO_CONNECTION_STRING', 'mongodb://localhost:27017/')
+        self.mongo_database = os.getenv('MONGO_DATABASE', 'crypto_trading')
+        self.mongo_username = os.getenv('MONGO_USERNAME')
+        self.mongo_password = os.getenv('MONGO_PASSWORD')
+        self.enable_mongo_logging = os.getenv('ENABLE_MONGO_LOGGING', 'true').lower() == 'true'
+        
         # Validate required configuration
         self._validate_config()
     

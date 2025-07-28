@@ -191,7 +191,7 @@ python3 backtest.py --symbol BTCBRL --days 90 --short-period 12 --long-period 15
 ### API Connection Test
 ```bash
 # Test Binance API connection
-python3 test_api_connection.py
+python3 validation/test_api_connection.py
 ```
 
 ## 🚀 Deployment
@@ -249,7 +249,7 @@ kubectl apply -f kubernetes/
 
 ### Logs and Debugging
 - Verifique logs em `logs/` directory
-- Use `test_api_connection.py` para testar conectividade
+- Use `validation/test_api_connection.py` para testar conectividade
 - Monitore performance em tempo real
 
 ---

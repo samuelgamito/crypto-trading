@@ -55,12 +55,7 @@ class BinanceClient:
             params['signature'] = self._generate_signature(params)
         
         # Log the API call
-        request_id = self.binance_logger.log_api_call(
-            method=method,
-            endpoint=endpoint,
-            params=params,
-            headers=dict(self.session.headers)
-        )
+        request_id = self.binance_logger.create_request_id(method, endpoint)
         
         try:
             if method.upper() == 'GET':
@@ -75,12 +70,6 @@ class BinanceClient:
             # Log the response
             if response.status_code == 200:
                 response_data = response.json()
-                self.binance_logger.log_api_response(
-                    request_id=request_id,
-                    response_data=response_data,
-                    status_code=response.status_code,
-                    success=True
-                )
                 return response_data
             else:
                 # Log error response
@@ -89,6 +78,14 @@ class BinanceClient:
                 except:
                     error_data = {'msg': response.text}
                 
+                self.binance_logger.log_api_call(
+                    request_id=request_id,
+                    method=method,
+                    endpoint=endpoint,
+                    params=params,
+                    headers=dict(self.session.headers)
+                )
+            
                 self.binance_logger.log_api_response(
                     request_id=request_id,
                     response_data=error_data,
@@ -100,14 +97,7 @@ class BinanceClient:
                 return error_data
             
         except requests.exceptions.RequestException as e:
-            # Log the exception
-            self.binance_logger.log_api_error(
-                request_id=request_id,
-                error=e,
-                method=method,
-                endpoint=endpoint,
-                params=params
-            )
+
             
             self.logger.error(f"API request failed: {e}")
             raise

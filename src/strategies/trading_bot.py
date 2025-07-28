@@ -4,7 +4,7 @@ Enhanced trading bot that orchestrates multiple strategies for better performanc
 
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import Dict, List, Tuple
 
 from src.strategies.base_strategy import BaseStrategy
@@ -12,6 +12,9 @@ from src.strategies.simple_moving_average import SimpleMovingAverageStrategy
 from src.strategies.rsi_volume_strategy import RSIVolumeStrategy
 from src.models.trade import MarketData, Trade
 from src.api.binance_client import BinanceClient
+from src.config.config import Config
+from src.utils.mongo_service import MongoService
+from src.utils.signal_builder import SignalBuilder
 
 
 class TradingBot:
@@ -21,6 +24,15 @@ class TradingBot:
         self.config = config
         self.binance_client = binance_client
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize MongoDB service and signal builder
+        self.mongo_service = MongoService(
+            connection_string=config.mongo_connection_string,
+            database_name=config.mongo_database,
+            username=config.mongo_username,
+            password=config.mongo_password
+        )
+        self.signal_builder = SignalBuilder()
         
         # Initialize both strategies
         self.sma_strategy = SimpleMovingAverageStrategy(config, binance_client)
@@ -93,8 +105,7 @@ class TradingBot:
             self.logger.error(f"Error in trading bot: {e}")
             raise
         finally:
-            self.is_running = False
-            self._print_performance_summary()
+            self.cleanup()
     
     def _update_strategies(self, market_data: MarketData):
         """Update both strategies with current market data"""
@@ -134,6 +145,47 @@ class TradingBot:
         print(f"   📈 SMA: {short_sma:.2f}/{long_sma:.2f} | RSI: {rsi_value:.1f} | Vol: {volume_ratio:.1f}x")
         print(f"   🎯 Trades: {self.daily_trades}/{self.config.max_daily_trades}")
     
+    def _log_signal_to_mongodb(self, market_data: MarketData, decision: str, strength: str, reason: str, executed: bool = False, failure_reason: str = None):
+        """Log trading signal to MongoDB with execution status"""
+        if not self.config.enable_mongo_logging or not self.mongo_service.is_connected():
+            return
+        
+        try:
+            # Get current signal values
+            sma_buy, sma_sell = self._get_strategy_signals(market_data)[:2]
+            rsi_buy, rsi_sell = self._get_strategy_signals(market_data)[2:]
+            
+            # Get indicator values
+            rsi_value = self.rsi_volume_strategy.rsi_indicator.calculate_rsi()
+            volume_ratio = self.rsi_volume_strategy.volume_indicator.get_volume_ratio(market_data.quote_volume)
+            
+            # Build signal document with execution status
+            signal_document = self.signal_builder.build_enhanced_signal_document(
+                market_data=market_data,
+                sma_buy=sma_buy,
+                sma_sell=sma_sell,
+                rsi_buy=rsi_buy,
+                rsi_sell=rsi_sell,
+                rsi_value=rsi_value,
+                volume_ratio=volume_ratio,
+                decision=decision,
+                strength=strength,
+                reason=reason,
+                executed=executed,
+                failure_reason=failure_reason
+            )
+            
+            # Store in MongoDB
+            success = self.mongo_service.store_trading_signal(signal_document)
+            if success:
+                execution_status = "✅ EXECUTED" if executed else "❌ NOT EXECUTED"
+                self.logger.info(f"Signal logged to MongoDB: {decision} ({strength}) - {execution_status} - {reason}")
+            else:
+                self.logger.warning("Failed to log signal to MongoDB")
+                
+        except Exception as e:
+            self.logger.error(f"Error logging signal to MongoDB: {e}")
+
     def _get_strategy_signals(self, market_data: MarketData) -> Tuple[bool, bool, bool, bool]:
         """Get signals from both strategies"""
         # SMA signals
@@ -151,73 +203,126 @@ class TradingBot:
         try:
             # Get signals from both strategies
             sma_buy, sma_sell, rsi_buy, rsi_sell = self._get_strategy_signals(market_data)
-            
-            # Check if we have any open positions
             has_position = self.strategy.has_position()
             
-            if not has_position:
-                # Enhanced buy logic
-                buy_signal = self._evaluate_buy_signals(sma_buy, rsi_buy, market_data)
-                if buy_signal:
-                    self._execute_enhanced_buy_signal(market_data, sma_buy, rsi_buy)
+            # Evaluate buy signals
+            buy_signal_strength = self._evaluate_buy_signals(sma_buy, rsi_buy, market_data)
+            should_buy = False
+            buy_failure_reason = None
+            
+            if buy_signal_strength:
+                if not has_position:
+                    if buy_signal_strength in ["CONSERVATIVE", "STRONG"]:
+                        should_buy = True
+                        self.logger.info(f"Buy signal for new position: {buy_signal_strength}")
+                        print(f"🟢 New position buy signal: {buy_signal_strength}")
+                    else:
+                        buy_failure_reason = f"MODERATE signal not strong enough for new position"
+                else:
+                    if buy_signal_strength == "STRONG":
+                        should_buy = True
+                        self.logger.info(f"Buy signal for existing position: {buy_signal_strength}")
+                        print(f"📈 Adding to position: {buy_signal_strength}")
+                    else:
+                        buy_failure_reason = f"Have position, need STRONG signal (got {buy_signal_strength})"
+                        self.logger.info(f"Skipping {buy_signal_strength} signal - have position")
+                        print(f"⚠️  Skipping {buy_signal_strength} signal - have position")
             else:
-                # Enhanced sell logic
+                # No buy signal detected
+                self._log_signal_to_mongodb(market_data, "KEEP", "NONE", "No buy signals detected", executed=False, failure_reason="No buy signals")
+            
+            # Execute buy if conditions met
+            if should_buy:
+                execution_success = self._execute_enhanced_buy_signal(market_data, sma_buy, rsi_buy)
+                if execution_success:
+                    self._log_signal_to_mongodb(market_data, "BUY", buy_signal_strength, f"Buy signal executed: {buy_signal_strength}", executed=True)
+                else:
+                    self._log_signal_to_mongodb(market_data, "BUY", buy_signal_strength, f"Buy signal failed to execute: {buy_signal_strength}", executed=False, failure_reason="Order execution failed")
+            elif buy_signal_strength and buy_failure_reason:
+                # Log failed buy signal
+                self._log_signal_to_mongodb(market_data, "BUY", buy_signal_strength, f"Buy signal not executed: {buy_signal_strength}", executed=False, failure_reason=buy_failure_reason)
+            
+            # Enhanced sell logic
+            if has_position:
                 sell_signal = self._evaluate_sell_signals(sma_sell, rsi_sell, market_data)
                 if sell_signal:
-                    self._execute_enhanced_sell_signal(market_data, sma_sell, rsi_sell)
-                    
+                    execution_success = self._execute_enhanced_sell_signal(market_data, sma_sell, rsi_sell)
+                    if execution_success:
+                        self._log_signal_to_mongodb(market_data, "SELL", "STRONG", "Sell signal executed", executed=True)
+                    else:
+                        self._log_signal_to_mongodb(market_data, "SELL", "STRONG", "Sell signal failed to execute", executed=False, failure_reason="Order execution failed")
+                else:
+                    # No sell signal when we have position
+                    self._log_signal_to_mongodb(market_data, "KEEP", "NONE", "No sell signals detected", executed=False, failure_reason="No sell signals")
+            else:
+                # No position, no sell possible
+                self._log_signal_to_mongodb(market_data, "KEEP", "NONE", "No position to sell", executed=False, failure_reason="No position")
+                
         except Exception as e:
             self.logger.error(f"Error processing enhanced trading signals: {e}")
             print(f"❌ Error processing signals: {e}")
-    
-    def _evaluate_buy_signals(self, sma_buy: bool, rsi_buy: bool, market_data: MarketData) -> bool:
-        """Evaluate buy signals from both strategies"""
-        # Strong buy: Both strategies agree
-        if sma_buy and rsi_buy:
-            self.combined_signals += 1
-            print("🟢 STRONG BUY SIGNAL! Both SMA and RSI+Volume agree!")
-            return True
-        
-        # Moderate buy: SMA signals but RSI is neutral (not overbought)
-        elif sma_buy and not self.rsi_volume_strategy.rsi_indicator.is_overbought():
-            self.sma_signals += 1
-            print("🟡 MODERATE BUY SIGNAL! SMA Golden Cross with neutral RSI")
-            return True
-        
-        # Conservative buy: RSI shows oversold with volume confirmation
-        elif rsi_buy and self.rsi_volume_strategy.rsi_indicator.is_oversold():
-            self.rsi_signals += 1
-            print("🟡 CONSERVATIVE BUY SIGNAL! RSI oversold with volume confirmation")
-            return True
-        
-        return False
-    
+
+    def _evaluate_buy_signals(self, sma_buy: bool, rsi_buy: bool, market_data: MarketData) -> str:
+        """Evaluate buy signals using smart combination logic. Returns 'STRONG', 'CONSERVATIVE', 'MODERATE', or None."""
+        try:
+            # Strong buy: Both strategies agree
+            if sma_buy and rsi_buy:
+                self.combined_signals += 1
+                return "STRONG"
+            # Conservative buy: RSI oversold with volume confirmation
+            elif rsi_buy and self.rsi_volume_strategy.rsi_indicator.is_oversold():
+                self.combined_signals += 1
+                return "CONSERVATIVE"
+            # Moderate buy: SMA agrees, RSI not overbought
+            elif sma_buy and not self.rsi_volume_strategy.rsi_indicator.is_overbought():
+                self.combined_signals += 1
+                return "MODERATE"
+            # No buy signal
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(f"Error evaluating buy signals: {e}")
+            return None
+
     def _evaluate_sell_signals(self, sma_sell: bool, rsi_sell: bool, market_data: MarketData) -> bool:
-        """Evaluate sell signals from both strategies"""
-        # Strong sell: Both strategies agree
-        if sma_sell and rsi_sell:
-            self.combined_signals += 1
-            print("🔴 STRONG SELL SIGNAL! Both SMA and RSI+Volume agree!")
-            return True
-        
-        # Moderate sell: SMA signals but RSI is neutral (not oversold)
-        elif sma_sell and not self.rsi_volume_strategy.rsi_indicator.is_oversold():
-            self.sma_signals += 1
-            print("🟡 MODERATE SELL SIGNAL! SMA Death Cross with neutral RSI")
-            return True
-        
-        # Conservative sell: RSI shows overbought with volume confirmation
-        elif rsi_sell and self.rsi_volume_strategy.rsi_indicator.is_overbought():
-            self.rsi_signals += 1
-            print("🟡 CONSERVATIVE SELL SIGNAL! RSI overbought with volume confirmation")
-            return True
-        
-        return False
+        """Evaluate sell signals using smart combination logic"""
+        try:
+            # Strong sell: Both strategies agree
+            if sma_sell and rsi_sell:
+                self.combined_signals += 1
+                return True
+            
+            # Moderate sell: SMA agrees, RSI not oversold
+            elif sma_sell and not self.rsi_volume_strategy.rsi_indicator.is_oversold():
+                self.combined_signals += 1
+                return True
+            
+            # Conservative sell: RSI overbought with volume confirmation
+            elif rsi_sell and self.rsi_volume_strategy.rsi_indicator.is_overbought():
+                self.combined_signals += 1
+                return True
+            
+            # No sell signal
+            else:
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error evaluating sell signals: {e}")
+            return False
     
     def stop(self):
         """Stop the trading bot"""
-        self.logger.info("Stopping enhanced trading bot...")
+        self.logger.info("Stopping trading bot...")
         self.is_running = False
+        
+        # Close MongoDB connection
+        if hasattr(self, 'mongo_service'):
+            self.mongo_service.close_connection()
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        self.stop()
+        self._print_performance_summary()
     
     def _update_daily_reset(self):
         """Reset daily counters if it's a new day"""
@@ -248,22 +353,21 @@ class TradingBot:
             self.logger.error(f"Error processing trading signals: {e}")
             print(f"❌ Error processing signals: {e}")
     
-    def _execute_enhanced_buy_signal(self, market_data: MarketData, sma_buy: bool, rsi_buy: bool):
-        """Execute enhanced buy signal with strategy information"""
+    def _execute_enhanced_buy_signal(self, market_data: MarketData, sma_buy: bool, rsi_buy: bool) -> bool:
+        """Execute enhanced buy signal with strategy information. Returns True if successful, False otherwise."""
         try:
             # Calculate position size
             quantity = self.strategy.calculate_position_size(market_data)
             
             if quantity <= 0:
                 self.logger.warning("Invalid position size calculated")
-                return
+                return False
             
-            # Check if we already have a position
+            # Get current position for display (but don't block execution)
             current_position = self.strategy.positions.get('BTC', 0)
             if current_position > 0:
-                self.logger.info(f"Already have BTC position: {current_position}")
-                print(f"⚠️  Already have BTC position: {current_position}")
-                return
+                self.logger.info(f"Adding to existing BTC position: {current_position:.8f}")
+                print(f"📈 Adding to existing position: {current_position:.8f} BTC")
             
             # Calculate trade details
             trade_value_brl = quantity * market_data.price
@@ -306,13 +410,18 @@ class TradingBot:
                 
                 print(f"   ✅ ENHANCED BUY ORDER EXECUTED!")
                 print(f"   📝 Daily trades: {self.daily_trades}/{self.config.max_daily_trades}")
+                return True
+            else:
+                print(f"   ❌ ENHANCED BUY ORDER FAILED!")
+                return False
             
         except Exception as e:
             self.logger.error(f"Error executing enhanced buy signal: {e}")
             print(f"   ❌ Error executing buy: {e}")
+            return False
     
-    def _execute_enhanced_sell_signal(self, market_data: MarketData, sma_sell: bool, rsi_sell: bool):
-        """Execute enhanced sell signal with strategy information"""
+    def _execute_enhanced_sell_signal(self, market_data: MarketData, sma_sell: bool, rsi_sell: bool) -> bool:
+        """Execute enhanced sell signal with strategy information. Returns True if successful, False otherwise."""
         try:
             # Check if we have a position to sell
             current_position = self.strategy.positions.get('BTC', 0)
@@ -320,7 +429,7 @@ class TradingBot:
             if current_position <= 0:
                 self.logger.info(f"No BTC position to sell: {current_position:.8f}")
                 print(f"⚠️  No BTC position to sell: {current_position:.8f}")
-                return
+                return False
             
             # Calculate trade details
             trade_value_brl = current_position * market_data.price
@@ -356,23 +465,22 @@ class TradingBot:
                 pnl = self._calculate_trade_pnl(trade)
                 self.total_pnl += pnl
                 
-                if pnl > 0:
-                    self.win_trades += 1
-                
-                self.logger.info(f"Enhanced SELL order executed: {trade.quantity:.8f} BTC at {trade.price:.2f}")
+                self.logger.info(f"Enhanced SELL order executed: {trade.quantity:.8f} {market_data.symbol} at ${trade.price:.2f}")
                 self.logger.info(f"SMA Signal: {sma_sell}, RSI Signal: {rsi_sell}")
-                self.logger.info(f"Trade P&L: {pnl:.2f}")
                 self.logger.info(f"Daily trades: {self.daily_trades}/{self.config.max_daily_trades}")
                 
                 print(f"   ✅ ENHANCED SELL ORDER EXECUTED!")
-                print(f"   💰 P&L: {pnl:,.2f}")
+                print(f"   💰 P&L: {pnl:+.2f}")
                 print(f"   📝 Daily trades: {self.daily_trades}/{self.config.max_daily_trades}")
+                return True
             else:
                 print(f"   ❌ ENHANCED SELL ORDER FAILED!")
+                return False
             
         except Exception as e:
             self.logger.error(f"Error executing enhanced sell signal: {e}")
             print(f"   ❌ Error executing sell: {e}")
+            return False
     
     def _execute_buy_signal(self, market_data: MarketData):
         """Legacy buy signal method (kept for compatibility)"""

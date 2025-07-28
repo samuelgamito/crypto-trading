@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
-Script simples para testar a colocação de uma ordem na Binance
+Script para testar a venda de BTC na Binance
 """
 
 import os
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.append(str(Path(__file__).parent / "src"))
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from src.config.config import Config
 from src.api.binance_client import BinanceClient
+from src.utils.fee_manager import FeeManager
 
 
-def test_simple_order():
-    """Testa a colocação de uma ordem simples"""
+def test_sell_order():
+    """Testa a venda de BTC"""
     
-    print("🧪 Teste Simples de Ordem na Binance")
+    print("🔴 Teste de Venda de BTC na Binance")
     print("=" * 50)
     
     try:
@@ -28,9 +30,10 @@ def test_simple_order():
         print(f"   Testnet: {config.testnet}")
         print()
         
-        # Initialize Binance client
+        # Initialize Binance client and fee manager
         client = BinanceClient(config)
-        print(f"✅ Cliente Binance inicializado")
+        fee_manager = FeeManager(client)
+        print(f"✅ Cliente Binance e Fee Manager inicializados")
         print()
         
         # Get current price
@@ -45,49 +48,65 @@ def test_simple_order():
         account_info = client.get_account_info()
         balances = account_info.get('balances', [])
         
-        # Find BRL balance
-        brl_balance = None
+        # Find BTC balance
+        btc_balance = None
         for balance in balances:
-            if balance['asset'] == 'BRL':
-                brl_balance = float(balance['free'])
+            if balance['asset'] == 'BTC':
+                btc_balance = float(balance['free'])
                 break
         
-        if brl_balance is None:
-            print("❌ Saldo BRL não encontrado")
+        if btc_balance is None or btc_balance <= 0:
+            print("❌ Saldo BTC não encontrado ou insuficiente")
             return
         
-        print(f"   Saldo BRL: R$ {brl_balance:,.2f}")
+        print(f"   Saldo BTC: {btc_balance:.8f} BTC")
+        print(f"   Valor em BRL: R$ {btc_balance * current_price:,.2f}")
         print()
         
-        # Calculate a small test order (R$ 50)
-        test_amount_brl = 50.0
-        quantity = test_amount_brl / current_price
+        # Calculate sell quantity (use 50% of available balance for test)
+        sell_percentage = 50.0
+        raw_quantity = btc_balance * (sell_percentage / 100.0)
         
-        # Round to 5 decimal places (BTC precision)
-        quantity = round(quantity, 5)
+        # Round quantity using fee manager
+        quantity = fee_manager.round_quantity(raw_quantity, config.default_symbol, is_sell_order=False)
         
-        print("📈 Parâmetros da Ordem de Teste:")
+        # Validate the order parameters
+        validation = fee_manager.validate_order_parameters(config.default_symbol, quantity)
+        
+        if not validation['valid']:
+            print("❌ Validação da ordem falhou:")
+            for error in validation['errors']:
+                print(f"   - {error}")
+            return
+        
+        # Calculate expected proceeds
+        expected_proceeds = fee_manager.calculate_sell_proceeds(quantity, config.default_symbol)
+        fee_amount = (quantity * current_price) - expected_proceeds
+        
+        print("📈 Parâmetros da Ordem de Venda:")
         print("-" * 40)
-        print(f"   Valor: R$ {test_amount_brl:,.2f}")
         print(f"   Quantidade: {quantity:.8f} BTC")
-        print(f"   Preço estimado: R$ {quantity * current_price:,.2f}")
+        print(f"   Preço estimado: R$ {current_price:,.2f}")
+        print(f"   Valor bruto: R$ {quantity * current_price:,.2f}")
+        print(f"   Taxa estimada: R$ {fee_amount:.2f}")
+        print(f"   Valor líquido: R$ {expected_proceeds:.2f}")
         print()
         
         # Check if we have enough balance
-        if test_amount_brl > brl_balance:
-            print(f"❌ Saldo insuficiente: R$ {brl_balance:,.2f} < R$ {test_amount_brl:,.2f}")
+        if quantity > btc_balance:
+            print(f"❌ Saldo insuficiente: {btc_balance:.8f} BTC < {quantity:.8f} BTC")
             return
         
-        print("✅ Saldo suficiente para o teste!")
+        print("✅ Saldo suficiente para a venda!")
         print()
         
         # Confirm order placement
-        print("⚠️  ATENÇÃO: Esta é uma ordem REAL!")
+        print("⚠️  ATENÇÃO: Esta é uma ordem REAL de VENDA!")
         print(f"   Symbol: {config.default_symbol}")
-        print(f"   Side: BUY")
+        print(f"   Side: SELL")
         print(f"   Type: MARKET")
-        print(f"   Quantity: {quantity:.5f} BTC")
-        print(f"   Estimated Value: R$ {test_amount_brl:,.2f}")
+        print(f"   Quantity: {quantity:.8f} BTC")
+        print(f"   Estimated Proceeds: R$ {expected_proceeds:.2f}")
         print()
         
         if config.testnet:
@@ -98,25 +117,25 @@ def test_simple_order():
         print()
         
         # Ask for confirmation
-        confirm = input("🤔 Confirmar ordem de teste? (yes/no): ").lower().strip()
+        confirm = input("🤔 Confirmar ordem de venda? (yes/no): ").lower().strip()
         
         if confirm not in ['yes', 'y', 'sim', 's']:
             print("❌ Ordem cancelada pelo usuário")
             return
         
         print()
-        print("🚀 Executando ordem de teste...")
+        print("🚀 Executando ordem de venda...")
         print("-" * 40)
         
         # Place the order
         order_result = client.place_order(
             symbol=config.default_symbol,
-            side='BUY',
+            side='SELL',
             order_type='MARKET',
             quantity=quantity
         )
         
-        print("✅ Ordem executada com sucesso!")
+        print("✅ Ordem de venda executada com sucesso!")
         print()
         
         # Display order details
@@ -133,8 +152,15 @@ def test_simple_order():
         fills = order_result.get('fills', [])
         if fills:
             print(f"   Fills: {len(fills)}")
+            total_proceeds = 0.0
             for i, fill in enumerate(fills):
-                print(f"     Fill {i+1}: {fill.get('qty', 'N/A')} @ R$ {float(fill.get('price', 0)):,.2f}")
+                qty = float(fill.get('qty', 0))
+                price = float(fill.get('price', 0))
+                commission = float(fill.get('commission', 0))
+                proceeds = qty * price - commission
+                total_proceeds += proceeds
+                print(f"     Fill {i+1}: {qty:.8f} @ R$ {price:,.2f} (comissão: R$ {commission:.2f})")
+            print(f"   Total Proceeds: R$ {total_proceeds:.2f}")
         
         print()
         
@@ -157,11 +183,11 @@ def test_simple_order():
         if updated_brl is not None:
             print(f"   BRL: R$ {updated_brl:,.2f}")
         if updated_btc is not None:
-            print(f"   BTC: {updated_btc:.6f}")
+            print(f"   BTC: {updated_btc:.8f}")
         
         print()
         print("=" * 50)
-        print("✅ Teste de ordem concluído com sucesso!")
+        print("✅ Teste de venda concluído com sucesso!")
         
         # Log API statistics
         api_stats = client.get_api_statistics()
@@ -195,51 +221,63 @@ def test_connection_only():
         
         # Test connection with ticker price
         print("🏓 Testando conexão...")
-        print("   Conexão estabelecida com sucesso!")
-        print()
-        
-        # Test ticker price
-        print("💰 Obtendo preço...")
         ticker = client.get_ticker_price(config.default_symbol)
         current_price = float(ticker['price'])
-        print(f"   Preço {config.default_symbol}: R$ {current_price:,.2f}")
+        print(f"   Conexão estabelecida com sucesso!")
+        print(f"   Preço atual: R$ {current_price:,.2f}")
         print()
         
-        # Test account info
-        print("📊 Obtendo informações da conta...")
+        # Get account balance
         account_info = client.get_account_info()
         balances = account_info.get('balances', [])
         
-        # Show some balances
-        print("   Saldos:")
+        btc_balance = None
+        brl_balance = None
+        
         for balance in balances:
-            free = float(balance['free'])
-            if free > 0:
-                print(f"     {balance['asset']}: {free:,.8f}")
+            if balance['asset'] == 'BTC':
+                btc_balance = float(balance['free'])
+            elif balance['asset'] == 'BRL':
+                brl_balance = float(balance['free'])
+        
+        print("💰 Saldos da Conta:")
+        print("-" * 40)
+        if btc_balance is not None:
+            print(f"   BTC: {btc_balance:.8f} (R$ {btc_balance * current_price:,.2f})")
+        if brl_balance is not None:
+            print(f"   BRL: R$ {brl_balance:,.2f}")
         
         print()
-        print("✅ Conexão testada com sucesso!")
+        print("=" * 40)
+        print("✅ Teste de conexão concluído!")
         
     except Exception as e:
-        print(f"❌ Erro no teste de conexão: {e}")
+        print(f"❌ Erro no teste: {e}")
         import traceback
         traceback.print_exc()
 
 
 def main():
-    """Main function"""
-    import argparse
+    """Função principal"""
+    print("🔴 Script de Teste de Venda de BTC")
+    print("=" * 50)
+    print()
+    print("Escolha uma opção:")
+    print("1. Testar venda de BTC")
+    print("2. Testar apenas conexão")
+    print("3. Sair")
+    print()
     
-    parser = argparse.ArgumentParser(description="Teste simples de ordem na Binance")
-    parser.add_argument("--connection-only", "-c", action="store_true",
-                       help="Apenas testar conexão, sem executar ordem")
+    choice = input("Digite sua escolha (1-3): ").strip()
     
-    args = parser.parse_args()
-    
-    if args.connection_only:
+    if choice == '1':
+        test_sell_order()
+    elif choice == '2':
         test_connection_only()
+    elif choice == '3':
+        print("👋 Saindo...")
     else:
-        test_simple_order()
+        print("❌ Opção inválida")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ class BaseStrategy(ABC):
         self.trades: List[Trade] = []
         self.positions: Dict[str, float] = {}
         
+        # Initialize positions with actual wallet balances
+        self.sync_positions_with_wallet()
+        
     @abstractmethod
     def should_buy(self, market_data: MarketData) -> bool:
         """Determine if we should buy based on market data"""
@@ -77,8 +80,8 @@ class BaseStrategy(ABC):
             )
             
             self.trades.append(trade)
-            # For BTCUSDT trades, track BTC position
-            if symbol == 'BTCUSDT':
+            # For BTCBRL trades, track BTC position
+            if symbol == 'BTCBRL':
                 self.positions['BTC'] = self.positions.get('BTC', 0) + quantity
             else:
                 self.positions[symbol] = self.positions.get(symbol, 0) + quantity
@@ -98,7 +101,7 @@ class BaseStrategy(ABC):
             # Round quantity to meet symbol requirements
             if hasattr(self, 'fee_manager'):
                 # Get current balance for smart rounding
-                if symbol == 'BTCUSDT':
+                if symbol == 'BTCBRL':
                     current_quantity = self.positions.get('BTC', 0)
                 else:
                     current_quantity = self.positions.get(symbol, 0)
@@ -117,7 +120,7 @@ class BaseStrategy(ABC):
                     return None
             
             # Check if we have enough of the asset
-            if symbol == 'BTCUSDT':
+            if symbol == 'BTCBRL':
                 current_quantity = self.positions.get('BTC', 0)
             else:
                 current_quantity = self.positions.get(symbol, 0)
@@ -147,8 +150,8 @@ class BaseStrategy(ABC):
             )
             
             self.trades.append(trade)
-            # For BTCUSDT trades, track BTC position
-            if symbol == 'BTCUSDT':
+            # For BTCBRL trades, track BTC position
+            if symbol == 'BTCBRL':
                 self.positions['BTC'] = current_quantity - quantity
             else:
                 self.positions[symbol] = current_quantity - quantity
@@ -200,14 +203,25 @@ class BaseStrategy(ABC):
     def sync_positions_with_wallet(self):
         """Sync internal positions with actual wallet balances"""
         try:
-            # Get actual wallet balances
-            crypto_balance = self.binance_client.get_balance(self.config.crypto_symbol)
-            currence_balance = self.binance_client.get_balance(self.config.currency_symbol)
+            # For BTCUSDT trading, we need to track BTC and BRL positions
+            if self.config.default_symbol == 'BTCBRL':
+                # Get actual wallet balances
+                btc_balance = self.binance_client.get_balance('BTC')
+                brl_balance = self.binance_client.get_balance('BRL')
                 
-            # Update internal positions with real balances
-            self.positions[self.config.crypto_symbol] = crypto_balance
-            self.positions[self.config.currency_symbol] = currence_balance
-            self.logger.info(f"Synced positions with wallet: {self.config.crypto_symbol}={crypto_balance:.6f}, {self.config.currency_symbol}={currence_balance:.2f}")
+                # Update internal positions with real balances
+                self.positions['BTC'] = btc_balance
+                self.positions['BRL'] = brl_balance
+                self.logger.info(f"Synced positions with wallet: BTC={btc_balance:.8f}, BRL={brl_balance:.2f}")
+            else:
+                # Generic case for other symbols
+                crypto_balance = self.binance_client.get_balance(self.config.crypto_symbol)
+                currency_balance = self.binance_client.get_balance(self.config.currency_symbol)
+                
+                # Update internal positions with real balances
+                self.positions[self.config.crypto_symbol] = crypto_balance
+                self.positions[self.config.currency_symbol] = currency_balance
+                self.logger.info(f"Synced positions with wallet: {self.config.crypto_symbol}={crypto_balance:.6f}, {self.config.currency_symbol}={currency_balance:.2f}")
             
         except Exception as e:
             self.logger.error(f"Error syncing positions with wallet: {e}")

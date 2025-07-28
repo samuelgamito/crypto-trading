@@ -1,45 +1,36 @@
 # 🚀 Crypto Trading Bot
 
-A sophisticated Python-based cryptocurrency trading bot with intelligent percentage-based position sizing, real-time portfolio tracking, and advanced risk management for automated trading on Binance.
+A sophisticated Python-based cryptocurrency trading bot with dual strategy system, intelligent position sizing, and MongoDB signal logging for automated trading on Binance.
 
 ## ✨ Features
 
 - **🤖 Automated Trading**: Real-time trading via Binance API with testnet support
-- **💰 Smart Position Sizing**: Percentage-based trading (5% of total wallet per trade)
-- **📊 Portfolio Tracking**: Real-time BRL and BTC balance monitoring
-- **🛡️ Risk Management**: Built-in stop-loss, take-profit, and daily limits
-- **📈 Dual Strategy System**: SMA Crossover + RSI + Volume Filters
-- **🔍 Performance Analytics**: Comprehensive metrics and detailed trade logging
-- **📚 Complete Documentation**: Extensive guides and quick references
+- **📊 Dual Strategy System**: SMA Crossover + RSI + Volume Filters
+- **💰 Smart Position Sizing**: Percentage-based trading with balance validation
+- **📈 MongoDB Signal Logging**: Complete signal history with detailed analytics
+- **🛡️ Risk Management**: Stop-loss, take-profit, and daily trade limits
+- **🔍 Performance Analytics**: Comprehensive metrics and trade logging
 
 ## 🎯 Trading Strategies
 
 ### Dual Strategy System
 
-O sistema implementa **duas estratégias complementares** que trabalham em conjunto:
-
 #### 1. Simple Moving Average (SMA) Crossover
-- **Short SMA (12-period)**: Média móvel mais rápida
-- **Long SMA (15-period)**: Média móvel mais lenta
-- **Golden Cross (Buy)**: Short SMA cruza acima da Long SMA
-- **Death Cross (Sell)**: Short SMA cruza abaixo da Long SMA
+- **Short SMA (12-period)**: Faster moving average
+- **Long SMA (15-period)**: Slower moving average
+- **Golden Cross (Buy)**: Short SMA crosses above Long SMA
+- **Death Cross (Sell)**: Short SMA crosses below Long SMA
 
 #### 2. RSI + Volume Filters
-- **RSI (14-period)**: Relative Strength Index para momentum
-- **Volume Confirmation**: Volume deve estar acima da média móvel
-- **Buy Signal**: RSI < 70 (não sobrecomprado) AND Volume > Average
-- **Sell Signal**: RSI > 30 (não sobrevendido) AND Volume > Average
+- **RSI (14-period)**: Relative Strength Index for momentum
+- **Volume Confirmation**: Volume must be above moving average
+- **Buy Signal**: RSI < 70 (not overbought) AND Volume > Average
+- **Sell Signal**: RSI > 30 (not oversold) AND Volume > Average
 
 #### Smart Signal Combination
-- **STRONG SIGNALS**: Ambas as estratégias concordam
-- **MODERATE SIGNALS**: SMA sinaliza, RSI neutro
-- **CONSERVATIVE SIGNALS**: RSI extremo com confirmação de volume
-
-### Smart Position Sizing
-- **Percentage-based**: 5% of total wallet balance per trade
-- **Dynamic calculation**: Adapts to your current portfolio value
-- **Risk management**: Ensures controlled exposure
-- **Balance validation**: Checks sufficient USDT before trading
+- **STRONG**: Both strategies agree
+- **MODERATE**: SMA signals, RSI neutral
+- **CONSERVATIVE**: RSI extreme with volume confirmation
 
 ## 🚀 Quick Start
 
@@ -57,349 +48,139 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip3 install -r requirements.txt
 ```
 
-### 2. Configure API Keys
+### 2. Configure Environment
 ```bash
 # Copy environment template
 cp env.example .env
 
-# Edit .env with your Binance API keys and preferences
+# Edit .env with your settings
 nano .env
 ```
 
 ### 3. Run Trading Bot
 ```bash
-# Start the enhanced trading bot with dual strategies
-.venv/bin/python main.py
+# Start live trading
+python3 main.py
 
-# Run backtest (SMA strategy only)
-.venv/bin/python backtest.py
-
-# Custom backtest parameters
-.venv/bin/python backtest.py --symbol BTCBRL --days 90 --short-period 12 --long-period 15
-```
-
-### 4. Start Live Trading
-```bash
-# Start trading (testnet mode by default)
-.venv/bin/python main.py
+# Run backtest
+python3 backtest.py
 ```
 
 ## 📁 Project Structure
 
 ```
 crypto-trading/
-├── 📄 main.py                     # 🚀 Live trading entry point
-├── 📊 backtest.py                 # 📊 Backtesting utility
-├── 📚 DOCUMENTATION.md            # 📖 Complete documentation
-├── ⚡ QUICK_REFERENCE.md          # ⚡ Quick reference guide
-├── 🎯 TRADING_DECISIONS.md        # 🎯 Decision logic guide
+├── main.py                    # Live trading entry point
+├── backtest.py               # Backtesting utility
+├── requirements.txt          # Python dependencies
+├── env.example              # Environment template
+├── validation/              # Test and validation scripts
+│   ├── test_api_connection.py
+│   ├── test_mongo_auth.py
+│   ├── test_sell_order.py
+│   └── test_buy_order.py
 ├── src/
-│   ├── config/                    # ⚙️ Configuration management
-│   ├── api/                       # 🔌 Binance API client
-│   ├── models/                    # 📋 Data models
-│   ├── strategies/                # 📈 Trading strategies
-│   ├── backtesting/               # 🧪 Backtesting framework
-│   └── utils/                     # 🛠️ Utilities and logging
-├── tests/                         # 🧪 Test files
-└── logs/                          # 📝 Log files
+│   ├── config/              # Configuration management
+│   ├── api/                 # Binance API client
+│   ├── models/              # Data models
+│   ├── strategies/          # Trading strategies
+│   ├── utils/               # Utilities (indicators, logging, etc.)
+│   └── backtesting/         # Backtesting engine
+└── docs/                    # Documentation
 ```
 
-## 🔧 Key Components
+## 📊 MongoDB Signal Structure
 
-### Trading Strategies
-- **Dual Strategy System**: SMA Crossover + RSI + Volume Filters
-- **Smart Signal Combination**: Three levels of signal confidence
-- **Extensible Architecture**: Easy to add new strategies
-- **Risk Management**: Position sizing and stop-loss
+Every trading signal is logged to MongoDB with this structure:
 
-### Backtesting Framework
-- **Historical Data**: Real Binance market data
-- **Performance Metrics**: Return, win rate, drawdown, Sharpe ratio
-- **Trade Analysis**: Detailed trade history and equity curves
-
-### Live Trading Features
-- **Real-time monitoring**: Every 30 seconds
-- **Portfolio tracking**: USDT and BTC balances
-- **Detailed logging**: Trade amounts, percentages, and decisions
-- **Balance validation**: Ensures sufficient funds before trading
-
-## 📊 Example Output
-
-### Live Trading Display
-```
-🚀 Trading bot started! Monitoring BTCUSDT...
-💰 Wallet: USDT $98,607.66 | BTC 0.184650 ($21,786.34) | Total: $120,394.00
-📊 BTCUSDT: $117,987.23 | Trades: 0/10
-
-🟢 BUYING 0.051019 BTC
-   💰 Trade Value: $6,019.71
-   📊 Price: $117,987.23
-   📈 Percentage: 5.0% of total wallet
-   💼 Total Wallet: $120,394.00
-   💵 USDT Balance: $98,607.66
-   🪙 BTC Balance: 0.184650 BTC
-   ✅ BUY ORDER EXECUTED!
+```json
+{
+  "signals": [
+    {
+      "signal": "SMA_BUY|SMA_SELL|RSI_BUY|RSI_SELL|VOLUME_BUY|VOLUME_SELL",
+      "result": "true|false",
+      "value": "Signal Value",
+      "threshold": "Signal Threshold"
+    }
+  ],
+  "decision": "BUY|SELL|KEEP",
+  "strength": "CONSERVATIVE|MODERATE|STRONG",
+  "reason": "Signal reasoning",
+  "executed": true|false,
+  "failure_reason": "Reason if execution failed",
+  "created_at": "2025-01-01T00:00:00.000Z"
+}
 ```
 
-### Backtest Results
-```
-============================================================
-BACKTEST RESULTS
-============================================================
-Symbol: BTCUSDT
-Period: 30 days (1h intervals)
-Strategy: Simple Moving Average
+## 🗄️ MongoDB Authentication
 
-PERFORMANCE METRICS:
-  Initial Balance: $10,000.00
-  Final Balance:   $10,150.00
-  Total Return:    +1.50%
-  Total P&L:       $+150.00
+The bot supports MongoDB authentication with username and password:
 
-TRADING STATISTICS:
-  Total Trades:    15
-  Winning Trades:  9
-  Losing Trades:   6
-  Win Rate:        60.0%
-
-RISK METRICS:
-  Max Drawdown:    0.45%
-  Sharpe Ratio:    0.85
-```
-
-## 🔧 Configuration
-
-### Environment Variables (.env)
+### Local MongoDB (No Auth)
 ```bash
-# Binance API Configuration
-BINANCE_API_KEY=your_api_key_here
-BINANCE_SECRET_KEY=your_secret_key_here
-BINANCE_TESTNET=true  # Set to false for live trading
-
-# Trading Configuration
-DEFAULT_SYMBOL=BTCUSDT
-TRADE_PERCENTAGE=5.0  # Percentage of total wallet per trade
-MAX_DAILY_TRADES=10
-STOP_LOSS_PERCENTAGE=2.0
-TAKE_PROFIT_PERCENTAGE=5.0
-
-# Logging Configuration
-LOG_LEVEL=INFO
-LOG_FILE=logs/trading_bot.log
+MONGO_CONNECTION_STRING=mongodb://localhost:27017/
+MONGO_USERNAME=
+MONGO_PASSWORD=
 ```
 
-### Strategy Parameters
-```python
-# In src/strategies/simple_moving_average.py
-short_period = 12    # Short SMA period
-long_period = 15     # Long SMA period
-```
-
-## 🛠️ Usage Examples
-
-### Basic Backtesting
+### MongoDB with Authentication
 ```bash
-# Default backtest
-.venv/bin/python backtest.py
-
-# Custom parameters
-.venv/bin/python backtest.py --symbol BTCUSDT --days 180 --short-period 12 --long-period 15
-
-# Different timeframe
-.venv/bin/python backtest.py --interval 4h --days 90
+MONGO_CONNECTION_STRING=mongodb://localhost:27017/
+MONGO_USERNAME=your_username
+MONGO_PASSWORD=your_password
 ```
 
-### Live Trading
+### MongoDB Atlas (Cloud)
 ```bash
-# Start live trading (ensure API keys are configured)
-.venv/bin/python main.py
-
-# Stop trading: Ctrl+C
+MONGO_CONNECTION_STRING=mongodb+srv://cluster.mongodb.net/
+MONGO_USERNAME=your_atlas_username
+MONGO_PASSWORD=your_atlas_password
 ```
 
-### Configuration Check
+### Test MongoDB Connection
 ```bash
-# Check configuration
-.venv/bin/python -c "
-from src.config.config import Config
-config = Config()
-print(f'Testnet: {config.testnet}')
-print(f'Trade Percentage: {config.trade_percentage}%')
-print(f'Default Symbol: {config.default_symbol}')
-"
+python3 validation/test_mongo_auth.py
 ```
-
-## 🛡️ Risk Management
-
-### Built-in Safety Features
-- **Percentage-based trading**: 5% of total wallet per trade
-- **Daily Trade Limits**: Maximum 10 trades per day
-- **Stop Loss**: 2.0% automatic loss protection
-- **Take Profit**: 5.0% automatic profit taking
-- **Balance Validation**: Ensures sufficient USDT before trading
-- **Testnet Mode**: Safe testing with no real money
-
-### Risk Guidelines
-- **Conservative**: Lower trade percentage (2-3%)
-- **Balanced**: Default 5% trade percentage
-- **Active**: Higher trade percentage (7-10%)
 
 ## 📚 Documentation
 
-- **[Complete Documentation](DOCUMENTATION.md)**: Comprehensive guide with all details
-- **[Quick Reference](QUICK_REFERENCE.md)**: Essential commands and examples
-- **[Trading Decisions](TRADING_DECISIONS.md)**: Detailed decision-making logic
-- **[API Reference](DOCUMENTATION.md#api-reference)**: Technical API documentation
-- **[Binance Logging System](BINANCE_LOGGING_SYSTEM.md)**: Sistema de logging detalhado da API
-- **[Quantity Validation Fix](QUANTITY_VALIDATION_FIX.md)**: Correção de validação de quantidades
+- [📖 Complete Documentation](docs/DOCUMENTATION.md)
+- [⚡ Quick Reference](docs/QUICK_REFERENCE.md)
+- [🎯 Trading Decisions](docs/TRADING_DECISIONS.md)
+- [🔧 Technical Implementation](docs/TECHNICAL_IMPLEMENTATION.md)
+- [📋 Executive Summary](docs/EXECUTIVE_SUMMARY.md)
 
-## 🔍 Debugging e Logs
+## ⚙️ Configuration
 
-### Sistema de Logging da Binance
-
-O bot inclui um sistema completo de logging para facilitar o debug:
+Key environment variables:
 
 ```bash
-# Visualizar estatísticas da API
-python3 view_binance_logs.py --stats
+# Binance API
+BINANCE_API_KEY=your_api_key
+BINANCE_SECRET_KEY=your_secret_key
+BINANCE_TESTNET=true
 
-# Ver erros recentes
-python3 view_binance_logs.py --errors 10
+# Trading Settings
+TRADE_PERCENTAGE=5.0
+MAX_DAILY_TRADES=10
+DEFAULT_SYMBOL=BTCBRL
 
-# Ver chamadas recentes da API
-python3 view_binance_logs.py --calls 20
-
-# Ver detalhes de erro específico
-python3 view_binance_logs.py --error <ID>
-
-# Limpar logs antigos
-python3 view_binance_logs.py --cleanup 7
+# MongoDB
+MONGO_CONNECTION_STRING=mongodb://localhost:27017/
+MONGO_DATABASE=crypto_trading
+MONGO_USERNAME=your_mongo_username
+MONGO_PASSWORD=your_mongo_password
+ENABLE_MONGO_LOGGING=true
 ```
-
-### Arquivos de Log
-
-```
-logs/
-├── trading_bot.log           # Logs gerais do bot
-└── binance/
-    ├── binance_api.log       # Todas as chamadas da API
-    ├── binance_errors.log    # Apenas erros
-    └── error_<ID>.log       # Arquivos detalhados por erro
-```
-
-### Testes do Sistema
-
-```bash
-# Testar sistema de logging
-python3 test_binance_logging.py
-
-# Testar validação de quantidades
-python3 test_quantity_validation.py
-
-# Testar sistema de taxas
-python3 test_fees.py
-```
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-#### API Connection Problems
-```bash
-# Check API configuration
-.venv/bin/python -c "
-from src.config.config import Config
-config = Config()
-print(f'API Key: {config.api_key[:10]}...')
-print(f'Testnet: {config.testnet}')
-"
-```
-
-#### No Trading Signals
-```bash
-# Check current market conditions
-.venv/bin/python -c "
-from src.config.config import Config
-from src.api.binance_client import BinanceClient
-from src.strategies.trading_bot import TradingBot
-config = Config()
-client = BinanceClient(config)
-bot = TradingBot(config, client)
-market_data = bot.strategy.get_market_data('BTCUSDT')
-print(f'Current price: ${market_data.price}')
-print(f'Price history length: {len(bot.strategy.price_history)}')
-"
-```
-
-#### Import Errors
-```bash
-# Ensure virtual environment is activated
-source .venv/bin/activate
-
-# Check Python path
-python -c "import sys; print(sys.path)"
-```
-
-## 🎯 Strategy Selection Guide
-
-### Conservative Investor
-- **Trade Percentage**: 2-3% of wallet
-- **Risk**: Very Low
-- **Activity**: Low
-- **Best For**: Capital preservation
-
-### Balanced Trader
-- **Trade Percentage**: 5% of wallet (default)
-- **Risk**: Low
-- **Activity**: Medium
-- **Best For**: Steady growth
-
-### Active Trader
-- **Trade Percentage**: 7-10% of wallet
-- **Risk**: Medium
-- **Activity**: High
-- **Best For**: Maximum returns
-
-## 📈 Performance Metrics
-
-### Key Metrics Explained
-- **Total Return**: Overall percentage gain/loss
-- **Win Rate**: Percentage of profitable trades
-- **Max Drawdown**: Largest peak-to-trough decline
-- **Sharpe Ratio**: Risk-adjusted return measure
-- **Total Trades**: Number of executed trades
-- **Trade Percentage**: Percentage of wallet used per trade
-
-### Performance Targets
-- **Win Rate**: >50%
-- **Sharpe Ratio**: >0.2
-- **Max Drawdown**: <1%
-- **Total Return**: >0% (positive)
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
+4. Test thoroughly
 5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
-
-## ⚠️ Disclaimer
-
-This software is for educational and research purposes. Cryptocurrency trading involves substantial risk of loss. Use at your own risk and never invest more than you can afford to lose.
-
-## 📞 Support
-
-For support and questions:
-1. Check the [documentation](DOCUMENTATION.md)
-2. Review the [troubleshooting section](DOCUMENTATION.md#troubleshooting)
-3. Test with the provided backtesting tools
-4. Ensure your environment is properly configured
-
----
-
-**🚀 Ready to start trading? Follow the [Quick Start Guide](#-quick-start) above!**
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
