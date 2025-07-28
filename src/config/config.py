@@ -33,6 +33,11 @@ class Config:
         self.take_profit_percentage = float(os.getenv('TAKE_PROFIT_PERCENTAGE', '5.0'))
         self.max_daily_trades = int(os.getenv('MAX_DAILY_TRADES', '10'))
         
+        # Profit Management
+        self.min_profit_percentage = float(os.getenv('MIN_PROFIT_PERCENTAGE', '1.5'))  # Minimum profit before selling
+        self.min_holding_time_minutes = int(os.getenv('MIN_HOLDING_TIME_MINUTES', '30'))  # Minimum time to hold position
+        self.max_position_age_hours = int(os.getenv('MAX_POSITION_AGE_HOURS', '24'))  # Maximum time to hold position
+        
         # Fee Management
         self.include_fees = os.getenv('INCLUDE_FEES', 'true').lower() == 'true'
         self.fee_buffer_percentage = float(os.getenv('FEE_BUFFER_PERCENTAGE', '0.2'))  # Extra buffer for fees

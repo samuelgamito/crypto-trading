@@ -58,7 +58,7 @@ class RSIVolumeStrategy(BaseStrategy):
             self.logger.info("History will be built up gradually from live data")
     
     def should_buy(self, market_data: MarketData) -> bool:
-        """Buy when RSI < 70 (not overbought) and volume > average volume"""
+        """Buy when RSI < 60 (not overbought) and volume > average volume"""
         # Update indicators with new data
         self.rsi_indicator.add_price(market_data.price)
         self.volume_indicator.add_volume(market_data.quote_volume)
@@ -66,8 +66,8 @@ class RSIVolumeStrategy(BaseStrategy):
         # Get current RSI value
         current_rsi = self.rsi_indicator.calculate_rsi()
         
-        # Check RSI condition: not overbought (< 70)
-        rsi_condition = current_rsi < 70.0
+        # Check RSI condition: not overbought (< 60) - more conservative
+        rsi_condition = current_rsi < 60.0
         
         # Check volume condition: current volume > average volume
         volume_condition = self.volume_indicator.is_volume_above_average(market_data.quote_volume)
@@ -76,19 +76,19 @@ class RSIVolumeStrategy(BaseStrategy):
         avg_volume = self.volume_indicator.calculate_volume_sma()
         volume_ratio = self.volume_indicator.get_volume_ratio(market_data.quote_volume)
         
-        self.logger.info(f"Buy conditions - RSI: {current_rsi:.2f} (need < 70), "
+        self.logger.info(f"Buy conditions - RSI: {current_rsi:.2f} (need < 60), "
                         f"Volume: {market_data.quote_volume:.2f} vs avg {avg_volume:.2f} "
                         f"(ratio: {volume_ratio:.2f})")
         
         if rsi_condition and volume_condition:
-            self.logger.info(f"Buy signal triggered: RSI {current_rsi:.2f} < 70 and "
+            self.logger.info(f"Buy signal triggered: RSI {current_rsi:.2f} < 60 and "
                            f"volume {volume_ratio:.2f}x above average")
             return True
         
         return False
     
     def should_sell(self, market_data: MarketData) -> bool:
-        """Sell when RSI > 30 (not oversold) or take profit/stop loss"""
+        """Sell when RSI > 40 (not oversold) or take profit/stop loss"""
         # Update indicators with new data
         self.rsi_indicator.add_price(market_data.price)
         self.volume_indicator.add_volume(market_data.quote_volume)
@@ -96,8 +96,8 @@ class RSIVolumeStrategy(BaseStrategy):
         # Get current RSI value
         current_rsi = self.rsi_indicator.calculate_rsi()
         
-        # Check RSI condition: not oversold (> 30)
-        rsi_condition = current_rsi > 30.0
+        # Check RSI condition: not oversold (> 40) - more conservative
+        rsi_condition = current_rsi > 40.0
         
         # Check volume condition: current volume > average volume
         volume_condition = self.volume_indicator.is_volume_above_average(market_data.quote_volume)
@@ -106,12 +106,12 @@ class RSIVolumeStrategy(BaseStrategy):
         avg_volume = self.volume_indicator.calculate_volume_sma()
         volume_ratio = self.volume_indicator.get_volume_ratio(market_data.quote_volume)
         
-        self.logger.info(f"Sell conditions - RSI: {current_rsi:.2f} (need > 30), "
+        self.logger.info(f"Sell conditions - RSI: {current_rsi:.2f} (need > 40), "
                         f"Volume: {market_data.quote_volume:.2f} vs avg {avg_volume:.2f} "
                         f"(ratio: {volume_ratio:.2f})")
         
         if rsi_condition and volume_condition:
-            self.logger.info(f"Sell signal triggered: RSI {current_rsi:.2f} > 30 and "
+            self.logger.info(f"Sell signal triggered: RSI {current_rsi:.2f} > 40 and "
                            f"volume {volume_ratio:.2f}x above average")
             return True
         

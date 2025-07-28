@@ -5,12 +5,13 @@ Enhanced trading bot that orchestrates multiple strategies for better performanc
 import time
 import logging
 from datetime import datetime, date
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from src.strategies.base_strategy import BaseStrategy
 from src.strategies.simple_moving_average import SimpleMovingAverageStrategy
 from src.strategies.rsi_volume_strategy import RSIVolumeStrategy
 from src.models.trade import MarketData, Trade
+from src.models.position import Position
 from src.api.binance_client import BinanceClient
 from src.config.config import Config
 from src.utils.mongo_service import MongoService
@@ -46,6 +47,34 @@ class TradingBot:
         self.daily_trades = 0
         self.last_trade_date = None
         self.trades_today: List[Trade] = []
+        
+        # Position tracking
+        self.current_position: Optional[Position] = None
+        
+        # Recover position from MongoDB on startup
+        self._recover_position()
+    
+    def _recover_position(self):
+        """Recover position from MongoDB on startup"""
+        try:
+            if not self.config.enable_mongo_logging:
+                self.logger.info("MongoDB logging disabled, skipping position recovery")
+                return
+            
+            position_data = self.mongo_service.get_current_position(self.config.default_symbol)
+            
+            if position_data:
+                self.current_position = Position.from_dict(position_data)
+                self.logger.info(f"Position recovered from MongoDB: {self.current_position.quantity:.8f} {self.current_position.symbol} at {self.current_position.buy_price:.2f}")
+                print(f"🔄 Position recovered: {self.current_position.quantity:.8f} {self.current_position.symbol} at {self.current_position.buy_price:.2f}")
+                print(f"   Holding time: {self.current_position.get_holding_time_minutes()} minutes")
+            else:
+                self.logger.info("No position found in MongoDB")
+                print("🔄 No position to recover from MongoDB")
+                
+        except Exception as e:
+            self.logger.error(f"Error recovering position from MongoDB: {e}")
+            print(f"❌ Error recovering position: {e}")
         
         # Performance tracking
         self.total_pnl = 0.0
@@ -144,6 +173,12 @@ class TradingBot:
         print(f"📊 {market_data.symbol}: {market_data.price:,.2f}")
         print(f"   📈 SMA: {short_sma:.2f}/{long_sma:.2f} | RSI: {rsi_value:.1f} | Vol: {volume_ratio:.1f}x")
         print(f"   🎯 Trades: {self.daily_trades}/{self.config.max_daily_trades}")
+        
+        # Display position status if we have one
+        if self.current_position:
+            profit_percentage = self.current_position.calculate_profit_percentage(market_data.price)
+            holding_time = self.current_position.get_holding_time_minutes()
+            print(f"   📈 Position: {self.current_position.quantity:.8f} BTC | Profit: {profit_percentage:+.2f}% | Time: {holding_time}m")
     
     def _log_signal_to_mongodb(self, market_data: MarketData, decision: str, strength: str, reason: str, executed: bool = False, failure_reason: str = None):
         """Log trading signal to MongoDB with execution status"""
@@ -285,8 +320,36 @@ class TradingBot:
             return None
 
     def _evaluate_sell_signals(self, sma_sell: bool, rsi_sell: bool, market_data: MarketData) -> bool:
-        """Evaluate sell signals using smart combination logic"""
+        """Evaluate sell signals using smart combination logic with profit and timing checks"""
         try:
+            # If we have a position, check profit and timing conditions first
+            if self.current_position:
+                # Check if we should sell for profit
+                if self.current_position.should_sell_for_profit(
+                    market_data.price, 
+                    self.config.min_profit_percentage
+                ):
+                    self.logger.info(f"Profit target reached: {self.current_position.calculate_profit_percentage(market_data.price):.2f}%")
+                    return True
+                
+                # Check if we should sell due to time limit
+                if self.current_position.should_sell_for_time(self.config.max_position_age_hours):
+                    self.logger.info(f"Position held too long: {self.current_position.get_holding_time_hours():.1f} hours")
+                    return True
+                
+                # Check if we should sell for stop loss
+                if self.current_position.should_sell_for_stop_loss(
+                    market_data.price, 
+                    self.config.stop_loss_percentage
+                ):
+                    self.logger.info(f"Stop loss triggered: {self.current_position.calculate_profit_percentage(market_data.price):.2f}%")
+                    return True
+                
+                # Check minimum holding time
+                if self.current_position.get_holding_time_minutes() < self.config.min_holding_time_minutes:
+                    self.logger.info(f"Position too young: {self.current_position.get_holding_time_minutes()} minutes < {self.config.min_holding_time_minutes}")
+                    return False
+            
             # Strong sell: Both strategies agree
             if sma_sell and rsi_sell:
                 self.combined_signals += 1
@@ -400,6 +463,29 @@ class TradingBot:
             trade = self.strategy.execute_buy(self.config.default_symbol, quantity)
             
             if trade:
+                # Create or update position tracking
+                if self.current_position:
+                    # Add to existing position
+                    self.current_position.quantity += quantity
+                    self.current_position.fees_paid += estimated_fee
+                    self.logger.info(f"Added {quantity:.8f} BTC to existing position")
+                else:
+                    # Create new position
+                    self.current_position = Position(
+                        symbol=market_data.symbol,
+                        quantity=quantity,
+                        buy_price=market_data.price,
+                        buy_time=datetime.now()
+                    )
+                    self.current_position.fees_paid = estimated_fee
+                    self.logger.info(f"Created new position: {quantity:.8f} BTC at {market_data.price:.2f}")
+                
+                # Store position in MongoDB
+                if self.config.enable_mongo_logging:
+                    position_data = self.current_position.to_dict()
+                    self.mongo_service.store_position(position_data)
+                    self.logger.info("Position stored in MongoDB")
+                
                 self.daily_trades += 1
                 self.total_trades += 1
                 self.trades_today.append(trade)
@@ -419,6 +505,16 @@ class TradingBot:
             self.logger.error(f"Error executing enhanced buy signal: {e}")
             print(f"   ❌ Error executing buy: {e}")
             return False
+    
+    def _update_position_in_mongodb(self):
+        """Update current position in MongoDB"""
+        if self.current_position and self.config.enable_mongo_logging:
+            try:
+                position_data = self.current_position.to_dict()
+                self.mongo_service.store_position(position_data)
+                self.logger.debug("Position updated in MongoDB")
+            except Exception as e:
+                self.logger.error(f"Error updating position in MongoDB: {e}")
     
     def _execute_enhanced_sell_signal(self, market_data: MarketData, sma_sell: bool, rsi_sell: bool) -> bool:
         """Execute enhanced sell signal with strategy information. Returns True if successful, False otherwise."""
@@ -457,6 +553,23 @@ class TradingBot:
             trade = self.strategy.execute_sell(self.config.default_symbol, current_position)
             
             if trade:
+                # Calculate actual profit using position tracking
+                if self.current_position:
+                    actual_profit = self.current_position.calculate_net_profit(market_data.price)
+                    profit_percentage = self.current_position.calculate_profit_percentage(market_data.price)
+                    
+                    self.logger.info(f"Position closed: {self.current_position.quantity:.8f} BTC")
+                    self.logger.info(f"Profit: {actual_profit:.2f} BRL ({profit_percentage:.2f}%)")
+                    self.logger.info(f"Holding time: {self.current_position.get_holding_time_minutes()} minutes")
+                    
+                    # Clear the position
+                    self.current_position = None
+                    
+                    # Clear position from MongoDB
+                    if self.config.enable_mongo_logging:
+                        self.mongo_service.clear_position(market_data.symbol)
+                        self.logger.info("Position cleared from MongoDB")
+                
                 self.daily_trades += 1
                 self.total_trades += 1
                 self.trades_today.append(trade)

@@ -49,3 +49,5 @@ mongodb/
 kubernetes/secrets/
 
 **/__pycache__
+
+.cursor/

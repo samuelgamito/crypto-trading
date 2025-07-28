@@ -104,6 +104,77 @@ class MongoService:
             self.logger.error(f"Error retrieving signals by decision: {e}")
             return []
     
+    def store_position(self, position_data: Dict) -> bool:
+        """Store current position in MongoDB"""
+        if not self.is_connected():
+            self.logger.error("MongoDB not connected")
+            return False
+        
+        try:
+            # Update timestamp
+            position_data['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+            
+            # Use upsert to replace existing position or create new one
+            result = self.db.positions.replace_one(
+                {'symbol': position_data['symbol']},  # Filter by symbol
+                position_data,
+                upsert=True  # Create if doesn't exist
+            )
+            
+            if result.upserted_id:
+                self.logger.info(f"Position stored with ID: {result.upserted_id}")
+            else:
+                self.logger.info(f"Position updated for symbol: {position_data['symbol']}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error storing position: {e}")
+            return False
+    
+    def get_current_position(self, symbol: str) -> Optional[Dict]:
+        """Get current position for a symbol"""
+        if not self.is_connected():
+            self.logger.error("MongoDB not connected")
+            return None
+        
+        try:
+            position = self.db.positions.find_one({'symbol': symbol})
+            return position
+        except Exception as e:
+            self.logger.error(f"Error retrieving position: {e}")
+            return None
+    
+    def clear_position(self, symbol: str) -> bool:
+        """Clear position for a symbol (when sold)"""
+        if not self.is_connected():
+            self.logger.error("MongoDB not connected")
+            return False
+        
+        try:
+            result = self.db.positions.delete_one({'symbol': symbol})
+            if result.deleted_count > 0:
+                self.logger.info(f"Position cleared for symbol: {symbol}")
+            else:
+                self.logger.info(f"No position found to clear for symbol: {symbol}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error clearing position: {e}")
+            return False
+    
+    def get_all_positions(self) -> List[Dict]:
+        """Get all current positions"""
+        if not self.is_connected():
+            self.logger.error("MongoDB not connected")
+            return []
+        
+        try:
+            cursor = self.db.positions.find()
+            return list(cursor)
+        except Exception as e:
+            self.logger.error(f"Error retrieving positions: {e}")
+            return []
+    
     def close_connection(self):
         """Close MongoDB connection"""
         if self.client:
